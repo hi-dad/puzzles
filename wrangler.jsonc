@@ -1,0 +1,44 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "puzzle-table",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-10-01",
+
+  // The app itself (HTML/JS/CSS) is served straight from Cloudflare's asset store;
+  // only /api/* runs the Worker code.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // Puzzle progress (one row per puzzle).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "puzzle-table",
+      "database_id": "ed92127c-97a2-40c0-bf32-e94575fd7df7"
+    }
+  ],
+
+  // Puzzle photos.
+  "r2_buckets": [
+    {
+      "binding": "PHOTOS",
+      "bucket_name": "puzzle-table-photos"
+    }
+  ],
+
+  "workers_dev": true,
+  // No per-version preview URLs: one address, protected by Access.
+  "preview_urls": false,
+  "observability": { "enabled": true },
+
+  // Pretend-login for `wrangler dev` on your own computer.
+  "access": {
+    "dev": {
+      "aud": "local-dev",
+      "identity": { "email": "dev@example.com" }
+    }
+  }
+}

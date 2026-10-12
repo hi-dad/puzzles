@@ -18,10 +18,37 @@ Turn your own photos into jigsaw puzzles and solve them in the browser, on iPhon
 
 ## Run locally
 ```
-npm run dev      # http://localhost:5173
-npm test         # board-logic unit tests
+npm install
+npm run db:local   # once: create the local database table
+npm run dev        # app + backend at http://localhost:8787 (signed in as dev@example.com)
+npm test           # board-logic unit tests
 ```
-No build step: `public/` is plain HTML/CSS/ES modules.
+No build step: `public/` is plain HTML/CSS/ES modules. `npm run dev:static` serves just the
+front end (no backend); the app then saves on the device only.
+
+## How saving works
+Every device keeps a full copy of each puzzle in the browser (IndexedDB), so play is instant
+and works offline. When the backend is reachable, changes are also copied to Cloudflare:
+
+```
+browser ──/api/*──► Worker (worker/index.js) ──► D1  (one row per puzzle: positions, timer…)
+   ▲                    │                     └─► R2  (the puzzle photo)
+   └── HTML/JS/CSS ─────┘  served as static assets
+```
+
+- **Who you are** comes from Cloudflare Access in front of the Worker (email + one-time
+  code). The verified email is the owner key for everything stored.
+- **Sync** (`public/js/sync.js`): saves upload ~2.5 s after the last move; the library and
+  open puzzle pull newer copies when the app is opened, focused, or every 2 minutes.
+- **Conflicts** (same puzzle advanced on two devices): the most recent save wins; if the
+  puzzle on screen is older than the cloud copy, the app asks "Load latest / Keep this one".
+- The puzzle clock pauses after 2 idle minutes, so a device left open never saves over
+  progress made elsewhere.
+
+## Deploy (Cloudflare)
+`wrangler.jsonc` describes the Worker, its D1 database and R2 bucket. The table schema is
+in `worker/schema.sql`. Deploys run `npx wrangler deploy`, either from your computer or
+automatically from GitHub via Cloudflare Workers Builds.
 
 ## Code map
 - `public/js/geometry.js`: grid sizing, seeded jigsaw cut, piece rendering
@@ -29,9 +56,9 @@ No build step: `public/` is plain HTML/CSS/ES modules.
 - `public/js/game.js`: canvas board, tray, touch/mouse/trackpad input
 - `public/js/main.js`: screens (library, new puzzle, play), saving, timer
 - `public/js/textures.js`: procedural wood, felt and linen surfaces
+- `public/js/sync.js`: cloud sync with the Worker
 - `public/js/db.js`, `image.js`, `sound.js`: storage, photo prep, sound effects
+- `worker/index.js`: the Cloudflare Worker (API + static assets), `worker/schema.sql`: D1 table
 
 ## Roadmap
-- Cloud save on Cloudflare (R2 for photos, D1/Durable Objects for progress) so puzzles follow you between devices
 - Play together live on one board (a Durable Object room per puzzle, WebSocket sync)
-- Private access via Cloudflare Access

@@ -497,6 +497,7 @@ export class Game {
   onDown(e) {
     e.preventDefault();
     sfx.unlock();
+    this.hooks.onActivity?.();
     this.rect = this.canvas.getBoundingClientRect();
     try {
       this.canvas.setPointerCapture(e.pointerId);

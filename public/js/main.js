@@ -1,4 +1,5 @@
 import { db, requestPersistence } from './db.js';
+import { cloud } from './sync.js';
 import { preparePhoto, loadBlobImage, puzzleImage } from './image.js';
 import { Cut, chooseGrid } from './geometry.js';
 import { shuffled } from './logic.js';
@@ -52,6 +53,7 @@ async function route() {
   } else {
     show('library');
     await renderLibrary();
+    syncNow(); // re-renders if another device changed anything
   }
 }
 
@@ -105,6 +107,7 @@ async function renderLibrary() {
       e.preventDefault();
       if (!confirm(`Delete “${rec.name}”? This can’t be undone.`)) return;
       await db.remove(rec.id);
+      cloud.remove(rec.id);
       renderLibrary();
     });
     const card = el('a', { className: 'card', href: `#/play/${encodeURIComponent(rec.id)}` },
@@ -270,6 +273,7 @@ async function startPuzzle() {
     rec.imgH = pic.height;
     await db.putImage(id, pic.blob);
     await db.put(rec);
+    cloud.pushNow(id); // uploads the photo + puzzle in the background
     requestPersistence();
     location.hash = `#/play/${encodeURIComponent(id)}`;
   } catch {
@@ -286,25 +290,38 @@ let pieceGrid = null;
 let saveTimer = 0;
 let tick = 0;
 let lastTick = 0;
+let dirty = false;
+let lastActive = 0;
+const IDLE_MS = 120_000;
 
 async function openGame(id) {
   if (game && rec?.id === id) return;
   await closeGame();
+  $('#play-loading').hidden = false;
+  // Pick up newer progress from another device first (but don't wait forever offline).
+  await Promise.race([cloud.refresh(id), new Promise((r) => setTimeout(r, 3000))]);
   rec = await db.get(id);
-  const blob = rec && (await db.getImage(id));
+  const blob = rec && ((await db.getImage(id)) || (await cloud.fetchImage(id)));
   if (!rec || !blob) {
+    $('#play-loading').hidden = true;
     location.hash = '#/';
     return;
   }
   $('#play-title').textContent = rec.name;
-  $('#play-loading').hidden = false;
+  dirty = false;
+  lastActive = performance.now();
+  cloud.openId = id;
   const img = await loadBlobImage(blob);
   await new Promise((r) => requestAnimationFrame(r)); // let the loading state paint
   game = new Game($('#board'), rec, img, {
     onChange(state) {
       Object.assign(rec, state);
+      dirty = true;
       updateHud();
       scheduleSave();
+    },
+    onActivity() {
+      lastActive = performance.now();
     },
     onComplete() {
       saveNow();
@@ -322,6 +339,9 @@ async function closeGame() {
   if (!game) return;
   clearInterval(tick);
   await saveNow();
+  cloud.flush();
+  cloud.openId = null;
+  $('#conflict').hidden = true;
   game.destroy();
   game = null;
   rec = null;
@@ -332,8 +352,11 @@ async function closeGame() {
 
 function onTick() {
   const now = performance.now();
-  if (rec && !rec.done && !document.hidden) {
+  // The clock only runs while she's actually puzzling (paused after 2 idle minutes), so
+  // a device left open in the background never saves over progress made elsewhere.
+  if (rec && !rec.done && !document.hidden && now - lastActive < IDLE_MS) {
     rec.elapsed += Math.min(now - lastTick, 5000);
+    dirty = true;
     if (Math.floor(rec.elapsed / 1000) % 15 === 0) scheduleSave();
   }
   lastTick = now;
@@ -353,13 +376,59 @@ function scheduleSave() {
 
 async function saveNow() {
   clearTimeout(saveTimer);
-  if (!rec) return;
+  if (!rec || !dirty) return;
+  dirty = false;
   rec.updatedAt = Date.now();
   try {
     await db.put(structuredClone(rec));
+    cloud.queuePush(rec.id);
   } catch (e) {
     console.warn('save failed', e);
   }
+}
+
+// Another device saved the open puzzle more recently.
+function onConflict(id) {
+  if (rec?.id === id) $('#conflict').hidden = false;
+}
+
+async function resolveConflict(load) {
+  $('#conflict').hidden = true;
+  if (!rec) return;
+  const id = rec.id;
+  if (load) {
+    dirty = false; // drop this device's copy
+    await cloud.pull(id).catch(() => {});
+    await closeGame();
+    await openGame(id);
+  } else {
+    dirty = true; // re-save ours as the newest
+    await saveNow();
+    cloud.flush();
+  }
+}
+
+async function syncNow() {
+  const changed = await cloud.syncAll({ openId: rec?.id ?? null, onConflict });
+  if (changed && !screens.library.hidden) renderLibrary();
+}
+
+const CLOUD_TEXT = {
+  synced: '☁︎ Saved',
+  saving: 'Saving…',
+  offline: 'Offline · saved on this device',
+  'signed-out': 'Signed out · tap to sign in',
+};
+
+function showCloud(s) {
+  const pill = $('#cloud-status');
+  const mini = $('#play-cloud');
+  const text = CLOUD_TEXT[s];
+  pill.hidden = !text;
+  pill.textContent = s === 'synced' && cloud.email ? `☁︎ Synced · ${cloud.email}` : text || '';
+  pill.dataset.state = s;
+  mini.textContent = text ? ` · ${s === 'synced' ? '☁︎' : text}` : '';
+  mini.title = text || '';
 }
 
 function syncToggles() {
@@ -461,11 +530,27 @@ function wire() {
   });
   $('#complete-close').addEventListener('click', () => ($('#complete').hidden = true));
 
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) saveNow();
-    else lastTick = performance.now();
+  document.addEventListener('visibilitychange', async () => {
+    if (document.hidden) {
+      await saveNow();
+      cloud.flush();
+    } else {
+      lastTick = performance.now();
+      syncNow();
+    }
   });
-  window.addEventListener('pagehide', saveNow);
+  window.addEventListener('focus', () => syncNow());
+  window.addEventListener('pagehide', () => {
+    saveNow();
+    cloud.flush();
+  });
+  setInterval(() => !document.hidden && syncNow(), 120_000);
+  $('#conflict-load').addEventListener('click', () => resolveConflict(true));
+  $('#conflict-keep').addEventListener('click', () => resolveConflict(false));
+  $('#cloud-status').addEventListener('click', () => cloud.status === 'signed-out' && location.reload());
+  cloud.onConflict = onConflict;
+  cloud.onLocalChange = () => !screens.library.hidden && renderLibrary();
+  cloud.onStatus(showCloud);
   // Stop iOS Safari from zooming the whole page on pinch / double-tap outside the board.
   document.addEventListener('gesturestart', (e) => e.preventDefault());
   document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
@@ -481,3 +566,4 @@ window.puzzle = () => game;
 
 wire();
 route();
+cloud.init().then(syncNow);

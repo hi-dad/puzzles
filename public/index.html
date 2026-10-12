@@ -28,6 +28,7 @@
         <svg class="fp fp4" viewBox="15 15 70 70"><path d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>
         <svg class="fp fp5" viewBox="15 15 70 70"><path d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>
       </div>
+      <button id="cloud-status" class="cloud-pill" type="button" hidden></button>
       <p id="greeting" class="eyebrow"></p>
       <h1>Puzzle Table</h1>
       <p class="hero-sub">Turn any photo into a jigsaw.</p>
@@ -96,7 +97,7 @@
       </a>
       <div class="play-info">
         <div id="play-title" class="play-title"></div>
-        <div class="play-sub"><span id="play-progress"></span> · <span id="play-time"></span></div>
+        <div class="play-sub"><span id="play-progress"></span> · <span id="play-time"></span><span id="play-cloud" class="cloud-mini"></span></div>
       </div>
       <button id="btn-ghost" class="icon-btn toggle" type="button" title="Show picture on the board" aria-label="Show picture on the board">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 8"/></svg>
@@ -160,6 +161,16 @@
         <button id="pieces-clear" class="secondary" type="button" hidden>Clear</button>
         <button id="pieces-place" class="primary" type="button" disabled>Tap pieces to select</button>
       </footer>
+    </div>
+    <div id="conflict" class="conflict" hidden>
+      <div class="conflict-card">
+        <strong>Newer progress on another device</strong>
+        <p>This puzzle was saved more recently somewhere else.</p>
+        <div class="conflict-actions">
+          <button id="conflict-keep" class="secondary" type="button">Keep this one</button>
+          <button id="conflict-load" class="primary" type="button">Load latest</button>
+        </div>
+      </div>
     </div>
     <div id="complete" class="complete" hidden>
       <div id="confetti" class="confetti"></div>

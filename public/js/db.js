@@ -37,9 +37,19 @@ export const db = {
     await run('puzzles', 'readwrite', (s) => s.delete(id));
     await run('images', 'readwrite', (s) => s.delete(id));
   },
-  async putImage(id, blob) {
+  async putImage(id, blob, { inCloud = false } = {}) {
     const buf = await blob.arrayBuffer();
-    return run('images', 'readwrite', (s) => s.put({ buf, type: blob.type }, id));
+    return run('images', 'readwrite', (s) => s.put({ buf, type: blob.type, inCloud }, id));
+  },
+  // Whether this photo has been uploaded to the cloud yet (kept beside the photo, not in
+  // the puzzle record, so in-game saves can't overwrite it).
+  async imageInCloud(id) {
+    const v = await run('images', 'readonly', (s) => s.get(id));
+    return !!v?.inCloud;
+  },
+  async markImageInCloud(id) {
+    const v = await run('images', 'readonly', (s) => s.get(id));
+    if (v && !v.inCloud) await run('images', 'readwrite', (s) => s.put({ ...v, inCloud: true }, id));
   },
   async getImage(id) {
     const v = await run('images', 'readonly', (s) => s.get(id));
