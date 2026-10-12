@@ -15,6 +15,25 @@ export const BACKGROUNDS = {
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
+// Rotate (x, y) by r quarter turns clockwise (screen coordinates, y down).
+function turn(x, y, r) {
+  switch (r & 3) {
+    case 1: return { x: -y, y: x };
+    case 2: return { x: -x, y: -y };
+    case 3: return { x: y, y: -x };
+    default: return { x, y };
+  }
+}
+
+export const TRAY_SIZE = { min: 0.7, max: 1.8 };
+function savedTrayScale() {
+  try {
+    const v = parseFloat(localStorage.getItem('pt-tray'));
+    if (v >= TRAY_SIZE.min && v <= TRAY_SIZE.max) return v;
+  } catch {}
+  return 1;
+}
+
 export class Game {
   constructor(canvas, rec, img, hooks = {}) {
     this.canvas = canvas;
@@ -34,13 +53,16 @@ export class Game {
     }
 
     this.groupOf = new Array(this.n).fill(null);
-    this.groups = rec.groups.map((g) => ({ x: g.x, y: g.y, locked: g.locked, members: [...g.members] }));
+    this.rotate = !!rec.rotate;
+    this.rot = rec.rot ? [...rec.rot] : new Array(this.n).fill(0); // turn of each piece while in the tray
+    this.groups = rec.groups.map((g) => ({ x: g.x, y: g.y, r: g.r || 0, locked: g.locked, members: [...g.members] }));
     for (const g of this.groups) for (const i of g.members) this.groupOf[i] = g;
     this.tray = [...rec.tray];
 
     this.bg = BACKGROUNDS[rec.bg] ? rec.bg : 'felt';
     this.ghost = !!rec.ghost;
     this.edgesOnly = false;
+    this.trayScale = savedTrayScale();
     this.cam = { s: 1, x: 0, y: 0 };
     this.trayScroll = 0;
     this.trayVel = 0;
@@ -70,8 +92,9 @@ export class Game {
     this.rect = this.canvas.getBoundingClientRect();
     this.safeBottom = safeAreaBottom();
     const compact = this.w < 600 || this.h < 600;
-    this.trayH = (compact ? 92 : 112) + this.safeBottom;
-    this.slot = compact ? 76 : 92;
+    this.slot = Math.round((compact ? 76 : 92) * this.trayScale);
+    this.trayH = this.slot + 16 + this.safeBottom;
+    this.canvas.parentElement.style.setProperty('--tray-h', `${this.trayH}px`);
     if (prevW) {
       // keep the board centred through rotations/resizes
       this.cam.x += (this.w - prevW) / 2;
@@ -79,6 +102,16 @@ export class Game {
     }
     this.clampTray();
     this.redraw();
+  }
+
+  setTrayScale(k) {
+    this.trayScale = clamp(k, TRAY_SIZE.min, TRAY_SIZE.max);
+    try {
+      localStorage.setItem('pt-tray', String(this.trayScale));
+    } catch {}
+    const before = this.boardH;
+    this.resize();
+    this.cam.y += (this.boardH - before) / 2;
   }
 
   get boardH() {
@@ -163,12 +196,9 @@ export class Game {
     this.tray.splice(this.tray.indexOf(idx), 1);
     const pc = this.pieces[idx];
     const w = this.toWorld(p.x, p.y);
-    const g = {
-      x: w.x - (pc.col + 0.5) * this.cut.pw,
-      y: w.y - (pc.row + 0.5) * this.cut.ph,
-      locked: false,
-      members: [idx],
-    };
+    const r = this.rotate ? this.rot[idx] : 0;
+    const c = turn((pc.col + 0.5) * this.cut.pw, (pc.row + 0.5) * this.cut.ph, r);
+    const g = { x: w.x - c.x, y: w.y - c.y, r, locked: false, members: [idx] };
     this.groups.push(g);
     this.groupOf[idx] = g;
     return g;
@@ -189,8 +219,22 @@ export class Game {
     this.groups.splice(this.groups.indexOf(g), 1);
     const idx = g.members[0];
     this.groupOf[idx] = null;
+    this.rot[idx] = g.r;
     this.tray.unshift(idx);
     this.trayScroll = 0;
+  }
+
+  // Turn a loose group a quarter clockwise around the world point (px, py).
+  spin(g, px, py) {
+    const q = turn(px - g.x, py - g.y, 4 - g.r); // pivot in the group's own coordinates
+    const from = g.r;
+    g.r = (g.r + 1) & 3;
+    const t = turn(q.x, q.y, g.r);
+    g.x = px - t.x;
+    g.y = py - t.y;
+    g.spin = { px, py, q, from, t0: performance.now() };
+    sfx.pick();
+    this.drop(g, { x: 0, y: 0 });
   }
 
   drop(g, p) {
@@ -213,7 +257,7 @@ export class Game {
   checkDone() {
     if (this.rec.done) return;
     // Built the whole picture off to the side: glide it into the frame.
-    if (this.tray.length === 0 && this.groups.length === 1 && !this.groups[0].locked) {
+    if (this.tray.length === 0 && this.groups.length === 1 && !this.groups[0].locked && !this.groups[0].r) {
       const g = this.groups[0];
       this.anim = { g, x0: g.x, y0: g.y, t0: performance.now(), dur: 450 };
       this.redraw();
@@ -236,7 +280,8 @@ export class Game {
     const r2 = (v) => Math.round(v * 100) / 100;
     return {
       tray: [...this.tray],
-      groups: this.groups.map((g) => ({ x: r2(g.x), y: r2(g.y), locked: g.locked, members: [...g.members] })),
+      groups: this.groups.map((g) => ({ x: r2(g.x), y: r2(g.y), r: g.r, locked: g.locked, members: [...g.members] })),
+      rot: this.rotate ? [...this.rot] : undefined,
       placed: this.placed(),
       done: !!this.rec.done,
       bg: this.bg,
@@ -260,9 +305,10 @@ export class Game {
     for (let gi = this.groups.length - 1; gi >= 0; gi--) {
       const g = this.groups[gi];
       if (g.locked) continue;
+      const u = turn(w.x - g.x, w.y - g.y, 4 - g.r);
       for (const i of g.members) {
         const pc = this.pieces[i];
-        const lx = w.x - (g.x + pc.col * pw - M), ly = w.y - (g.y + pc.row * ph - M);
+        const lx = u.x - (pc.col * pw - M), ly = u.y - (pc.row * ph - M);
         if (lx < -slop || ly < -slop || lx > pc.canvas.width + slop || ly > pc.canvas.height + slop) continue;
         if (this.hit.isPointInPath(pc.path, lx, ly)) return g;
         if (!near && Math.abs(lx - M - pw / 2) < pw / 2 + slop && Math.abs(ly - M - ph / 2) < ph / 2 + slop) near = g;
@@ -336,7 +382,7 @@ export class Game {
     this.groups.splice(this.groups.indexOf(g), 1);
     this.groups.push(g);
     this.mode = 'piece';
-    this.m = { id, g, gx: w.x - g.x, gy: w.y - g.y };
+    this.m = { id, g, gx: w.x - g.x, gy: w.y - g.y, x0: p.x, y0: p.y, moved: false, fromTray: false };
     this.drag = g;
     sfx.pick();
     this.redraw();
@@ -359,6 +405,8 @@ export class Game {
       this.redraw();
     } else if (this.mode === 'piece') {
       const w = this.toWorld(p.x, p.y);
+      if (!m.moved && Math.hypot(p.x - m.x0, p.y - m.y0) < 6) return;
+      m.moved = true;
       m.g.x = w.x - m.gx;
       m.g.y = w.y - m.gy;
       this.overTray = this.inTray(p.y) && m.g.members.length === 1;
@@ -371,6 +419,7 @@ export class Game {
         if (lift) {
           const g = this.pull(m.idx, p);
           this.beginDrag(g, p, m.id);
+          this.m.moved = true;
           return;
         }
       }
@@ -409,7 +458,10 @@ export class Game {
     if (this.mode === 'piece') {
       this.drag = null;
       this.overTray = false;
-      this.drop(m.g, p);
+      if (!m.moved && this.rotate && e.type === 'pointerup') {
+        const w = this.toWorld(p.x, p.y);
+        this.spin(m.g, w.x, w.y);
+      } else this.drop(m.g, p);
     } else if (this.mode === 'tray') {
       if (m.scrolling) {
         this.trayVel = m.vel;
@@ -507,6 +559,7 @@ export class Game {
       } else more = true;
     }
     if (this.flash && t - this.flash.t < 500) more = true;
+    for (const g of this.groups) if (g.spin) more = true;
     this.draw(t);
     if (more) this.redraw();
   }
@@ -553,13 +606,16 @@ export class Game {
         ctx.globalAlpha = 0.55 * (1 - k);
         ctx.lineWidth = 3 / cam.s;
         ctx.strokeStyle = '#fff6d6';
+        ctx.save();
+        this.groupTransform(this.flash.g, t);
         for (const i of this.flash.g.members) {
           const pc = this.pieces[i];
           ctx.save();
-          ctx.translate(this.flash.g.x + pc.col * cut.pw - cut.M, this.flash.g.y + pc.row * cut.ph - cut.M);
+          ctx.translate(pc.col * cut.pw - cut.M, pc.row * cut.ph - cut.M);
           ctx.stroke(pc.path);
           ctx.restore();
         }
+        ctx.restore();
         ctx.globalAlpha = 1;
       } else if (k >= 1) this.flash = null;
     }
@@ -567,15 +623,39 @@ export class Game {
     this.drawTray();
   }
 
+  // Set the context so drawing at a piece's solved position lands where group g is now.
+  groupTransform(g, now) {
+    const { ctx } = this;
+    const sp = g.spin;
+    if (sp) {
+      const k = Math.min(1, (now - sp.t0) / 160);
+      if (k >= 1) g.spin = null;
+      else {
+        const e = 1 - Math.pow(1 - k, 2);
+        ctx.translate(sp.px, sp.py);
+        ctx.rotate((sp.from + e) * Math.PI / 2);
+        ctx.translate(-sp.q.x, -sp.q.y);
+        return;
+      }
+    }
+    ctx.translate(g.x, g.y);
+    if (g.r) ctx.rotate(g.r * Math.PI / 2);
+  }
+
   drawGroup(g, v, alpha = 1) {
     const { ctx, cut } = this;
     if (alpha !== 1) ctx.globalAlpha = alpha;
+    ctx.save();
+    this.groupTransform(g, performance.now());
+    const rad = Math.hypot(cut.pw, cut.ph) / 2 + cut.M;
     for (const i of g.members) {
       const pc = this.pieces[i];
-      const x = g.x + pc.col * cut.pw - cut.M, y = g.y + pc.row * cut.ph - cut.M;
-      if (x > v.x1 || y > v.y1 || x + pc.canvas.width < v.x0 || y + pc.canvas.height < v.y0) continue;
-      ctx.drawImage(pc.canvas, x, y);
+      const c = turn((pc.col + 0.5) * cut.pw, (pc.row + 0.5) * cut.ph, g.r);
+      const cx = g.x + c.x, cy = g.y + c.y;
+      if (cx - rad > v.x1 || cy - rad > v.y1 || cx + rad < v.x0 || cy + rad < v.y0) continue;
+      ctx.drawImage(pc.canvas, pc.col * cut.pw - cut.M, pc.row * cut.ph - cut.M);
     }
+    ctx.restore();
     if (alpha !== 1) ctx.globalAlpha = 1;
   }
 
@@ -609,7 +689,14 @@ export class Game {
       const pc = this.pieces[list[j]];
       const cx = 12 + this.slot * (j + 0.5) - this.trayScroll;
       const w = pc.canvas.width * k, h = pc.canvas.height * k;
-      ctx.drawImage(pc.canvas, cx - w / 2, cy - h / 2, w, h);
+      const r = this.rotate ? this.rot[pc.i] : 0;
+      if (r) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(r * Math.PI / 2);
+        ctx.drawImage(pc.canvas, -w / 2, -h / 2, w, h);
+        ctx.restore();
+      } else ctx.drawImage(pc.canvas, cx - w / 2, cy - h / 2, w, h);
     }
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;

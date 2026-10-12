@@ -54,6 +54,15 @@
           <div id="count-detail" class="muted small"></div>
         </div>
         <div class="field">
+          <label class="switch-row" for="rotate-input">
+            <span>
+              <strong>Rotate pieces</strong>
+              <span class="muted small">Harder: pieces start turned. Tap a piece to turn it.</span>
+            </span>
+            <input type="checkbox" id="rotate-input" class="switch">
+          </label>
+        </div>
+        <div class="field">
           <label class="label" for="name-input">Name</label>
           <input id="name-input" class="text" maxlength="60" autocomplete="off">
         </div>
@@ -88,6 +97,12 @@
       <div id="menu" class="menu" hidden>
         <div class="label">Table</div>
         <div id="swatches" class="swatches"></div>
+        <label class="label" for="tray-size">Tray piece size</label>
+        <div class="slider-row">
+          <span class="slider-sm">A</span>
+          <input type="range" id="tray-size" min="0.7" max="1.8" step="0.05">
+          <span class="slider-lg">A</span>
+        </div>
         <button id="btn-sound" class="menu-item" type="button">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7"/></svg>
           <span>Sound on</span>

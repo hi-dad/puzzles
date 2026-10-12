@@ -2,7 +2,9 @@
 //
 // A group is a set of pieces that move together. Its (x, y) is how far the group sits
 // from its solved position, so two groups line up exactly when their offsets match,
-// and a group at (0, 0) is in its final place in the frame.
+// and a group at (0, 0) is in its final place in the frame. In rotation mode a group
+// also has a quarter-turn count r (0–3): pieces only fit when r matches, and only
+// upright (r = 0) groups lock into the frame.
 
 export function neighbors(i, cols, rows) {
   const c = i % cols, r = (i / cols) | 0, out = [];
@@ -28,7 +30,7 @@ export function settle(g, { groups, groupOf, cols, rows, tol }) {
   let joined = 0, locked = false, again = true;
   while (again) {
     again = false;
-    if (!g.locked && Math.abs(g.x) < tol && Math.abs(g.y) < tol) {
+    if (!g.locked && !(g.r || 0) && Math.abs(g.x) < tol && Math.abs(g.y) < tol) {
       g.x = 0;
       g.y = 0;
       g.locked = true;
@@ -38,7 +40,7 @@ export function settle(g, { groups, groupOf, cols, rows, tol }) {
       for (const j of neighbors(i, cols, rows)) {
         const o = groupOf[j];
         if (!o || o === g) continue;
-        if (Math.abs(o.x - g.x) < tol && Math.abs(o.y - g.y) < tol) {
+        if ((o.r || 0) === (g.r || 0) && Math.abs(o.x - g.x) < tol && Math.abs(o.y - g.y) < tol) {
           if (o.locked && !g.locked) locked = true;
           if (!g.locked) {
             g.x = o.x;

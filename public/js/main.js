@@ -90,6 +90,7 @@ function resetNew() {
   $('#new-options').hidden = true;
   $('#start-btn').disabled = true;
   $('#new-error').textContent = '';
+  $('#rotate-input').checked = false;
   const d = new Date();
   $('#name-input').value = `Puzzle · ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
   renderChips();
@@ -163,6 +164,7 @@ async function startPuzzle() {
   const { cols, rows } = draft.grid;
   const now = Date.now();
   const id = crypto.randomUUID?.() ?? `${now}-${Math.random().toString(36).slice(2)}`;
+  const rotate = $('#rotate-input').checked;
   const rec = {
     id,
     name: $('#name-input').value.trim() || 'Puzzle',
@@ -182,6 +184,8 @@ async function startPuzzle() {
     ghost: false,
     tray: shuffled(cols * rows),
     groups: [],
+    rotate,
+    rot: rotate ? Array.from({ length: cols * rows }, () => (Math.random() * 4) | 0) : undefined,
   };
   try {
     await db.putImage(id, draft.photo.blob);
@@ -282,6 +286,7 @@ function syncToggles() {
   $('#btn-sound').classList.toggle('on', sfx.enabled);
   $('#btn-sound').querySelector('span').textContent = sfx.enabled ? 'Sound on' : 'Sound off';
   for (const b of document.querySelectorAll('.swatch')) b.classList.toggle('on', b.dataset.bg === game.bg);
+  $('#tray-size').value = game.trayScale;
 }
 
 function closeMenu() {
@@ -357,6 +362,7 @@ function wire() {
     });
     swatches.append(b);
   }
+  $('#tray-size').addEventListener('input', (e) => game.setTrayScale(parseFloat(e.target.value)));
   $('#btn-sound').addEventListener('click', () => {
     sfx.enabled = !sfx.enabled;
     syncToggles();

@@ -53,6 +53,19 @@ test('a locked group never moves when an unlocked one joins it', () => {
   assert.equal(a.members.length, 2);
 });
 
+test('pieces turned differently do not join, and turned groups do not lock', () => {
+  const a = { x: 10, y: 10, r: 1, locked: false, members: [0] };
+  const b = { x: 10, y: 10, r: 0, locked: false, members: [1] };
+  const st = board(2, 2, [a, b]);
+  assert.equal(settle(b, st).joined, 0);
+  const c = { x: 1, y: 1, r: 2, locked: false, members: [3] };
+  st.groups.push(c);
+  st.groupOf[3] = c;
+  assert.equal(settle(c, st).locked, false);
+  b.r = 1;
+  assert.equal(settle(b, st).joined, 1);
+});
+
 test('chooseGrid gets close to the target with near-square pieces', () => {
   const { cols, rows } = chooseGrid(4000, 3000, 100);
   assert.ok(Math.abs(cols * rows - 100) <= 12, `${cols}x${rows}`);

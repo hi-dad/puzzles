@@ -7,6 +7,8 @@ Turn your own photos into jigsaw puzzles and solve them in the browser, on iPhon
 - Real jigsaw shapes with a different random cut for every puzzle
 - Scrollable piece tray: swipe sideways to browse, swipe a piece up (or drag it with the mouse) to lift it, tap to drop it on the table
 - Pinch / trackpad zoom, drag to pan, pieces snap together and lock into the frame
+- Optional rotation mode: pieces start turned, tap one to turn it 90°
+- Adjustable tray piece size (⋯ menu)
 - "Edges only" tray filter, a faint picture on the board as a guide, table colours, sounds
 - Auto-saves every move on the device (IndexedDB); a library with progress and finish times
 
