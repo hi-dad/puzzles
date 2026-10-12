@@ -338,53 +338,61 @@ export class Game {
       if (Math.hypot((pc.col + 0.5) * pw - cx, (pc.row + 0.5) * ph - cy) > maxR + T) continue;
       clip.addPath(pc.path, new DOMMatrix([1, 0, 0, 1, pc.col * pw - M, pc.row * ph - M]));
     }
-    this.ripples.push({ g, cx, cy, maxR, clip, strong, t0: performance.now(), dur: 650 + (maxR / T) * 70 });
+    this.ripples.push({ g, cx, cy, maxR, clip, strong, t0: performance.now(), dur: 380 + (maxR / T) * 38 });
     this.redraw();
   }
 
   drawRipples(t) {
-    const { ctx, dpr, cam, cut } = this;
+    const { ctx, cam, cut } = this;
     this.ripples = this.ripples.filter((rp) => t - rp.t0 < rp.dur && this.groups.includes(rp.g));
+    const smooth = (x) => x * x * (3 - 2 * x);
     for (const rp of this.ripples) {
-      const k = Math.max(0, (t - rp.t0) / rp.dur);
+      const k = Math.min(1, Math.max(0, (t - rp.t0) / rp.dur));
       const peak = rp.strong ? 1 : 0.85;
       ctx.save();
       this.groupTransform(rp.g, t);
-      // light catching the cuts between pieces
-      ctx.save();
-      ctx.globalAlpha = Math.pow(1 - k, 2) * (rp.strong ? 0.7 : 0.5);
-      ctx.shadowColor = '#fff';
-      ctx.shadowBlur = 14 * dpr;
-      ctx.lineWidth = 2 / cam.s;
-      ctx.strokeStyle = '#fff';
-      ctx.stroke(rp.clip);
-      ctx.restore();
+      // Light catching the cuts between pieces: a wide faint line under a thin bright one
+      // (cheaper than a blurred shadow, which can stutter on phones).
+      const seam = smooth(Math.min(1, k * 8)) * Math.pow(1 - k, 1.6) * (rp.strong ? 0.75 : 0.55);
+      if (seam > 0.01) {
+        ctx.strokeStyle = '#fff';
+        ctx.globalAlpha = seam * 0.35;
+        ctx.lineWidth = 6 / cam.s;
+        ctx.stroke(rp.clip);
+        ctx.globalAlpha = seam;
+        ctx.lineWidth = 1.5 / cam.s;
+        ctx.stroke(rp.clip);
+        ctx.globalAlpha = 1;
+      }
       ctx.clip(rp.clip);
       ctx.globalCompositeOperation = 'screen';
-      // the initial splash of light
-      const splash = Math.pow(Math.max(0, 1 - k * 2.2), 2) * peak;
-      if (splash > 0) {
-        const r0 = cut.T * (0.6 + k * 2);
+      // the initial splash of light, swelling in then out
+      const sk = Math.min(1, k * 2.5);
+      const splash = Math.sin(sk * Math.PI) * (1 - sk * 0.4) * peak;
+      if (splash > 0.01) {
+        const r0 = cut.T * (0.7 + sk * 1.6);
         const sg = ctx.createRadialGradient(rp.cx, rp.cy, 0, rp.cx, rp.cy, r0);
         sg.addColorStop(0, `rgba(255,255,255,${splash})`);
+        sg.addColorStop(0.5, `rgba(255,255,255,${splash * 0.35})`);
         sg.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = sg;
         ctx.fillRect(rp.cx - r0, rp.cy - r0, r0 * 2, r0 * 2);
       }
-      // two expanding rings, like a drop on water
-      for (const delay of [0, 0.22]) {
+      // two expanding rings, like a drop on water; each eases in so nothing pops
+      for (const delay of [0, 0.18]) {
         const kk = (k - delay) / (1 - delay);
         if (kk <= 0 || kk >= 1) continue;
-        const e = 1 - Math.pow(1 - kk, 2.2);
+        const e = 1 - Math.pow(1 - kk, 3);
         const r = e * rp.maxR;
-        const w = cut.T * (0.45 + 0.6 * kk);
-        const a = Math.pow(1 - kk, 1.2) * peak * (delay ? 0.7 : 1);
+        const w = cut.T * (0.5 + 0.5 * kk);
+        const a = smooth(Math.min(1, kk * 6)) * Math.pow(1 - kk, 1.5) * peak * (delay ? 0.65 : 1);
+        if (a < 0.01) continue;
         const inner = Math.max(0, r - w), outer = r + w;
         const rg = ctx.createRadialGradient(rp.cx, rp.cy, inner, rp.cx, rp.cy, outer);
         rg.addColorStop(0, 'rgba(255,255,255,0)');
-        rg.addColorStop(0.42, `rgba(255,255,255,${a * 0.55})`);
+        rg.addColorStop(0.35, `rgba(255,255,255,${a * 0.4})`);
         rg.addColorStop(0.5, `rgba(255,255,255,${a})`);
-        rg.addColorStop(0.58, `rgba(255,255,255,${a * 0.55})`);
+        rg.addColorStop(0.65, `rgba(255,255,255,${a * 0.4})`);
         rg.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = rg;
         ctx.fillRect(rp.cx - outer, rp.cy - outer, outer * 2, outer * 2);
