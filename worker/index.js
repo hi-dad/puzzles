@@ -25,7 +25,16 @@ export default {
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
 
     const email = await signedInEmail(request, env, ctx);
-    if (!email) return json({ error: 'Not signed in' }, 401);
+    if (!email) {
+      // Say what was (not) received, to tell "Access isn't in front of this Worker" apart
+      // from "Access ran but sent no usable identity". No secrets are included.
+      return json({
+        error: 'Not signed in',
+        accessRan: !!ctx.access,
+        accessToken: request.headers.has('cf-access-jwt-assertion'),
+        accessEmailHeader: request.headers.has('cf-access-authenticated-user-email'),
+      }, 401);
+    }
     try {
       return await api(request, env, url, email);
     } catch (err) {
@@ -126,14 +135,28 @@ function json(body, status = 200) {
 
 // The email Cloudflare Access verified for this request, or null.
 async function signedInEmail(request, env, ctx) {
+  const token = request.headers.get('cf-access-jwt-assertion');
   // Worker-level Access hands the identity to the Worker directly.
   if (ctx.access) {
-    const who = await ctx.access.getIdentity();
-    if (who?.email) return who.email.toLowerCase();
+    try {
+      const who = await ctx.access.getIdentity();
+      const e = who?.email || who?.user?.email;
+      if (e) return String(e).toLowerCase();
+    } catch (err) {
+      console.error('getIdentity failed', err);
+    }
+    // Fall back to the signed token Access attached, checked against this Worker's own
+    // Access audience and Cloudflare's published signing keys.
+    if (token && ctx.access.aud) {
+      const iss = peekIssuer(token);
+      if (iss) {
+        const claims = await verifyAccessJwt(token, iss, ctx.access.aud);
+        if (claims?.email) return String(claims.email).toLowerCase();
+      }
+    }
   }
   // Otherwise (hostname-level Access app), verify the signed token Access attaches.
   // Needs TEAM_DOMAIN (https://<team>.cloudflareaccess.com) and POLICY_AUD set as vars.
-  const token = request.headers.get('cf-access-jwt-assertion');
   if (token && env.TEAM_DOMAIN && env.POLICY_AUD) {
     const claims = await verifyAccessJwt(token, env.TEAM_DOMAIN, env.POLICY_AUD);
     if (claims?.email) return String(claims.email).toLowerCase();
@@ -141,8 +164,18 @@ async function signedInEmail(request, env, ctx) {
   return null;
 }
 
-let jwks = null;
-let jwksAt = 0;
+// The token's issuer, only if it is a Cloudflare Access team domain (signature is
+// checked afterwards against that team's keys).
+function peekIssuer(token) {
+  try {
+    const iss = JSON.parse(b64text(token.split('.')[1])).iss;
+    return /^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/.test(iss) ? iss : null;
+  } catch {
+    return null;
+  }
+}
+
+const jwksCache = new Map(); // team domain -> { keys, at }
 
 async function verifyAccessJwt(token, teamDomain, aud) {
   try {
@@ -153,11 +186,12 @@ async function verifyAccessJwt(token, teamDomain, aud) {
     if (header.alg !== 'RS256' || claims.iss !== team) return null;
     if (!(Array.isArray(claims.aud) ? claims.aud : [claims.aud]).includes(aud)) return null;
     if (!claims.exp || claims.exp * 1000 < Date.now()) return null;
-    if (!jwks || Date.now() - jwksAt > 3600_000) {
-      jwks = (await (await fetch(`${team}/cdn-cgi/access/certs`)).json()).keys;
-      jwksAt = Date.now();
+    let cached = jwksCache.get(team);
+    if (!cached || Date.now() - cached.at > 3600_000) {
+      cached = { keys: (await (await fetch(`${team}/cdn-cgi/access/certs`)).json()).keys, at: Date.now() };
+      jwksCache.set(team, cached);
     }
-    const jwk = jwks.find((k) => k.kid === header.kid);
+    const jwk = cached.keys.find((k) => k.kid === header.kid);
     if (!jwk) return null;
     const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
     const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64bytes(s), new TextEncoder().encode(`${h}.${p}`));
