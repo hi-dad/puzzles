@@ -12,6 +12,7 @@ Turn your own photos into jigsaw puzzles and solve them in the browser, on iPhon
 - Sharp pieces even at 1000: the puzzle image is sized to the piece count (within iPhone memory limits)
 - Optional rotation mode: pieces start turned, tap one to turn it 90°
 - Adjustable tray piece size (⋯ menu)
+- "All pieces" view: every tray piece full-screen, sortable by colour; select several and place them together
 - "Edges only" tray filter, a faint picture on the board as a guide, table colours, sounds
 - Auto-saves every move on the device (IndexedDB); a library with progress and finish times
 

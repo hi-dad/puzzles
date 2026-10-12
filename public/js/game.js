@@ -215,6 +215,65 @@ export class Game {
     this.changed();
   }
 
+  // Put several tray pieces on the table at once, in a tidy block in the middle of the view.
+  placeMany(list) {
+    const n = list.length;
+    const per = Math.max(1, Math.round(Math.sqrt((n * this.w) / this.boardH)));
+    const rows = Math.ceil(n / per);
+    const step = Math.max(this.cut.pw, this.cut.ph) * 1.5; // world units between piece centres
+    const fit = Math.min((this.w * 0.9) / (per * step), (this.boardH * 0.85) / (rows * step));
+    // Zoom so the new pieces are a comfortable size (~70px) but all still fit in view.
+    const comfy = 70 / Math.max(this.cut.pw, this.cut.ph);
+    const target = this.clampScale(Math.min(fit, Math.max(this.cam.s, comfy)));
+    if (Math.abs(target - this.cam.s) > 1e-6) this.zoomAt(this.w / 2, this.boardH / 2, target / this.cam.s);
+    const s = step * this.cam.s;
+    const x0 = this.w / 2 - ((per - 1) * s) / 2, y0 = this.boardH / 2 - ((rows - 1) * s) / 2;
+    list.forEach((idx, k) => this.pull(idx, { x: x0 + (k % per) * s, y: y0 + Math.floor(k / per) * s }));
+    sfx.drop();
+    this.changed();
+  }
+
+  // Sort key per piece from its average colour: hue bands, then lightness; greys last.
+  colourKeys() {
+    if (this.keys) return this.keys;
+    const { cols, rows } = this.rec;
+    let src = this.img, w = this.rec.imgW, h = this.rec.imgH;
+    while (w / 4 > cols) {
+      // step down gradually so each output pixel averages its whole piece
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(cols, Math.round(w / 4));
+      cv.height = Math.max(rows, Math.round(h / 4));
+      const c = cv.getContext('2d');
+      c.imageSmoothingQuality = 'high';
+      c.drawImage(src, 0, 0, cv.width, cv.height);
+      src = cv;
+      w = cv.width;
+      h = cv.height;
+    }
+    const cv = document.createElement('canvas');
+    cv.width = cols;
+    cv.height = rows;
+    const c = cv.getContext('2d');
+    c.imageSmoothingQuality = 'high';
+    c.drawImage(src, 0, 0, cols, rows);
+    const d = c.getImageData(0, 0, cols, rows).data;
+    this.keys = [];
+    for (let i = 0; i < this.n; i++) {
+      const r = d[i * 4] / 255, g = d[i * 4 + 1] / 255, b = d[i * 4 + 2] / 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
+      const sat = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
+      let hue = 0;
+      if (max !== min) {
+        if (max === r) hue = ((g - b) / (max - min) + 6) % 6;
+        else if (max === g) hue = (b - r) / (max - min) + 2;
+        else hue = (r - g) / (max - min) + 4;
+        hue *= 60;
+      }
+      this.keys.push(sat < 0.15 || l < 0.1 || l > 0.92 ? 1000 + l : Math.floor(hue / 20) * 10 + l * 9);
+    }
+    return this.keys;
+  }
+
   returnToTray(g) {
     this.groups.splice(this.groups.indexOf(g), 1);
     const idx = g.members[0];

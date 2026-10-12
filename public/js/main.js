@@ -4,6 +4,7 @@ import { Cut, chooseGrid } from './geometry.js';
 import { shuffled } from './logic.js';
 import { Game, BACKGROUNDS, DEFAULT_BG } from './game.js';
 import { swatchURL } from './textures.js';
+import { PieceGrid } from './piecegrid.js';
 import { sfx } from './sound.js';
 
 const $ = (s) => document.querySelector(s);
@@ -206,6 +207,7 @@ async function startPuzzle() {
 
 let game = null;
 let rec = null;
+let pieceGrid = null;
 let saveTimer = 0;
 let tick = 0;
 let lastTick = 0;
@@ -249,6 +251,7 @@ async function closeGame() {
   game = null;
   rec = null;
   closeMenu();
+  if (pieceGrid?.isOpen) pieceGrid.close();
   $('#complete').hidden = true;
 }
 
@@ -346,6 +349,14 @@ function wire() {
     syncToggles();
   });
   $('#btn-fit').addEventListener('click', () => game.fit());
+  const grid = new PieceGrid({
+    panel: $('#pieces-panel'), scroll: $('#pieces-scroll'), canvas: $('#pieces-canvas'), spacer: $('#pieces-spacer'),
+    title: $('#pieces-title'), place: $('#pieces-place'), clear: $('#pieces-clear'), size: $('#pieces-size'),
+    edges: $('#pieces-edges'), sortMixed: $('#sort-mixed'), sortColour: $('#sort-colour'),
+  }, { onClose: () => syncToggles() });
+  pieceGrid = grid;
+  $('#btn-pieces').addEventListener('click', () => grid.open(game));
+  $('#pieces-close').addEventListener('click', () => grid.close());
   $('#btn-zoom-in').addEventListener('click', () => game.zoomBy(1.4));
   $('#btn-zoom-out').addEventListener('click', () => game.zoomBy(1 / 1.4));
   $('#btn-menu').addEventListener('click', (e) => {

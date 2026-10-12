@@ -115,7 +115,35 @@
         <button id="btn-zoom-in" class="icon-btn" type="button" aria-label="Zoom in">+</button>
         <button id="btn-zoom-out" class="icon-btn" type="button" aria-label="Zoom out">−</button>
       </div>
+      <button id="btn-pieces" class="tray-expand" type="button" aria-label="See all pieces">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
+        <span>All pieces</span>
+      </button>
       <div id="play-loading" class="loading" hidden>Cutting pieces…</div>
+    </div>
+    <div id="pieces-panel" class="pieces-panel" hidden>
+      <header class="bar pieces-bar">
+        <button id="pieces-close" class="icon-btn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+        <div id="pieces-title" class="play-title"></div>
+      </header>
+      <div class="pieces-tools">
+        <div class="seg">
+          <button id="sort-mixed" type="button">Mixed</button>
+          <button id="sort-colour" type="button">By colour</button>
+        </div>
+        <button id="pieces-edges" class="pill" type="button">Edges</button>
+        <input id="pieces-size" type="range" min="60" max="170" step="2" aria-label="Piece size">
+      </div>
+      <div id="pieces-scroll" class="pieces-scroll">
+        <canvas id="pieces-canvas"></canvas>
+        <div id="pieces-spacer"></div>
+      </div>
+      <footer class="pieces-foot">
+        <button id="pieces-clear" class="secondary" type="button" hidden>Clear</button>
+        <button id="pieces-place" class="primary" type="button" disabled>Tap pieces to select</button>
+      </footer>
     </div>
     <div id="complete" class="complete" hidden>
       <div id="confetti" class="confetti"></div>
