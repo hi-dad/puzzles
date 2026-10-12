@@ -3,13 +3,23 @@ import { preparePhoto, loadBlobImage, puzzleImage } from './image.js';
 import { Cut, chooseGrid } from './geometry.js';
 import { shuffled } from './logic.js';
 import { Game, BACKGROUNDS, DEFAULT_BG } from './game.js';
-import { swatchURL } from './textures.js';
+import { swatchURL, surface } from './textures.js';
 import { PieceGrid } from './piecegrid.js';
 import { sfx } from './sound.js';
 
 const $ = (s) => document.querySelector(s);
 const screens = { library: $('#screen-library'), new: $('#screen-new'), play: $('#screen-play') };
-const COUNTS = [24, 48, 100, 150, 250, 500, 1000];
+const COUNTS = [
+  [24, 'Quick'], [48, 'Easy'], [100, 'Cozy'], [150, 'Relaxed'], [250, 'Classic'], [500, 'Challenge'], [1000, 'Epic'],
+];
+
+// Rough solving time, ~18 seconds a piece.
+function estimate(n) {
+  const min = (n * 18) / 60;
+  if (min < 55) return `about ${Math.max(5, Math.round(min / 5) * 5)} min`;
+  const h = Math.round((min / 60) * 2) / 2;
+  return `about ${String(h).replace('.5', '½')} hour${h > 1 ? 's' : ''}`;
+}
 
 function show(name) {
   for (const [k, el] of Object.entries(screens)) el.hidden = k !== name;
@@ -48,16 +58,48 @@ async function route() {
 // ---------------- library ----------------
 
 async function renderLibrary() {
-  const grid = $('#library-grid');
   const list = (await db.list()).sort((a, b) => b.updatedAt - a.updatedAt);
+  const hour = new Date().getHours();
+  $('#greeting').textContent = hour < 5 ? 'Up late?' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+
+  const done = list.filter((r) => r.done);
+  const placed = list.reduce((n, r) => n + (r.placed || 0), 0);
+  const stats = $('#stats');
+  stats.replaceChildren();
+  if (list.length) {
+    const stat = (n, label) => el('div', { className: 'stat' }, el('strong', { textContent: n.toLocaleString() }), el('span', { textContent: label }));
+    stats.append(stat(list.length - done.length, 'in progress'), stat(done.length, 'finished'), stat(placed, 'pieces placed'));
+  }
+  $('#hero-cta').hidden = list.length > 0;
+
+  // Most recent unfinished puzzle gets a big "continue" card.
+  const current = list.find((r) => !r.done);
+  const cont = $('#continue');
+  cont.hidden = !current;
+  if (current) {
+    const pct = Math.floor((current.placed / current.total) * 100);
+    cont.replaceChildren(el('a', { className: 'continue-card', href: `#/play/${encodeURIComponent(current.id)}` },
+      el('div', { className: 'continue-img' }, el('img', { src: current.thumb, alt: '' })),
+      el('div', { className: 'continue-body' },
+        el('div', { className: 'eyebrow dark', textContent: 'Pick up where you left off' }),
+        el('div', { className: 'continue-title', textContent: current.name }),
+        el('div', { className: 'card-meta', textContent: `${current.placed} of ${current.total} pieces · ${fmtTime(current.elapsed)}` }),
+        el('div', { className: 'progress big' }, el('i', { style: `width:${pct}%` })),
+        el('span', { className: 'primary continue-btn', textContent: pct ? `Continue · ${pct}%` : 'Start puzzling' }))));
+  }
+
+  const grid = $('#library-grid');
+  $('#library-heading').hidden = list.length === 0;
+  grid.hidden = list.length === 0; // the hero button covers the empty state
   grid.replaceChildren(
     el('a', { className: 'card new-card', href: '#/new' },
-      el('span', { className: 'plus', textContent: '+' }),
-      el('span', { textContent: 'New puzzle' })),
+      el('span', { className: 'new-icon', innerHTML: ICONS.piece }),
+      el('strong', { textContent: 'New puzzle' }),
+      el('span', { className: 'card-meta', textContent: 'From any photo' })),
   );
   for (const rec of list) {
     const pct = Math.floor((rec.placed / rec.total) * 100);
-    const meta = rec.done ? `Finished in ${fmtTime(rec.elapsed)}` : `${rec.total} pieces · ${pct}%`;
+    const meta = rec.done ? `Finished in ${fmtTime(rec.elapsed)}` : `${pct}% done`;
     const del = el('button', { className: 'card-del', title: 'Delete puzzle', ariaLabel: 'Delete puzzle', innerHTML: ICONS.trash });
     del.addEventListener('click', async (e) => {
       e.preventDefault();
@@ -68,7 +110,8 @@ async function renderLibrary() {
     const card = el('a', { className: 'card', href: `#/play/${encodeURIComponent(rec.id)}` },
       el('div', { className: 'card-img' },
         el('img', { src: rec.thumb, alt: '' }),
-        rec.done ? el('span', { className: 'badge', textContent: 'Done' }) : null),
+        el('span', { className: 'badge', innerHTML: `${ICONS.pieceSmall}${rec.total}` }),
+        rec.done ? el('span', { className: 'badge done', textContent: '✓ Done' }) : null),
       el('div', { className: 'card-body' },
         el('div', { className: 'card-title', textContent: rec.name }),
         el('div', { className: 'card-meta', textContent: meta }),
@@ -76,7 +119,6 @@ async function renderLibrary() {
       del);
     grid.append(card);
   }
-  $('#library-empty').hidden = list.length > 0;
 }
 
 // ---------------- new puzzle ----------------
@@ -91,6 +133,7 @@ function resetNew() {
   $('#photo-drop').hidden = false;
   $('#new-options').hidden = true;
   $('#start-btn').disabled = true;
+  $('#start-btn').hidden = true;
   $('#new-error').textContent = '';
   $('#rotate-input').checked = false;
   const d = new Date();
@@ -100,8 +143,9 @@ function resetNew() {
 
 function renderChips() {
   const wrap = $('#count-chips');
-  wrap.replaceChildren(...COUNTS.map((n) => {
-    const b = el('button', { className: 'chip' + (n === draft.target ? ' on' : ''), textContent: n, type: 'button' });
+  wrap.replaceChildren(...COUNTS.map(([n, label]) => {
+    const b = el('button', { className: 'chip' + (n === draft.target ? ' on' : ''), type: 'button' },
+      el('strong', { textContent: n }), el('span', { textContent: label }));
     b.addEventListener('click', () => {
       draft.target = n;
       renderChips();
@@ -122,7 +166,8 @@ async function onPhoto(file) {
     $('#preview-wrap').hidden = false;
     $('#new-options').hidden = false;
     $('#start-btn').disabled = false;
-    renderPreview();
+    $('#start-btn').hidden = false;
+    renderPreview(true);
   } catch {
     $('#new-error').textContent = 'Sorry, that photo couldn’t be opened. Try a JPEG or PNG.';
   } finally {
@@ -130,12 +175,18 @@ async function onPhoto(file) {
   }
 }
 
-function renderPreview() {
+let previewAnim = 0;
+
+// Draw the photo with its jigsaw cut. The cut lines sweep out from the centre like a
+// blade going through, slower the first time a photo is chosen.
+function renderPreview(first = false) {
   if (!draft.photo) return;
   const { canvas: src, width, height } = draft.photo;
   draft.grid = chooseGrid(width, height, draft.target);
   const { cols, rows } = draft.grid;
-  $('#count-detail').textContent = `${cols * rows} pieces · ${cols} × ${rows}`;
+  const n = cols * rows;
+  $('#count-detail').textContent = `${n} pieces · ${cols} × ${rows} · ${estimate(n)}`;
+  $('#start-btn').textContent = `Cut into ${n} pieces`;
 
   const cv = $('#preview-canvas');
   const box = $('#preview-wrap').getBoundingClientRect();
@@ -148,16 +199,40 @@ function renderPreview() {
   cv.width = Math.round(w * dpr);
   cv.height = Math.round(h * dpr);
   const ctx = cv.getContext('2d');
-  ctx.drawImage(src, 0, 0, cv.width, cv.height);
   const cut = new Cut(cols, rows, cv.width, cv.height, draft.seed);
   const outline = new Path2D();
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) cut.trace(outline, c, r);
-  ctx.lineWidth = 1.6 * dpr;
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-  ctx.stroke(outline);
-  ctx.lineWidth = 0.8 * dpr;
-  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-  ctx.stroke(outline);
+  const R = Math.hypot(cv.width, cv.height) / 2;
+  const dur = first ? 900 : 350;
+  const t0 = performance.now();
+  cancelAnimationFrame(previewAnim);
+  const frame = (t) => {
+    const p = Math.min(1, Math.max(0, (t - t0) / dur)); // the first frame's timestamp can predate t0
+    const e = 1 - Math.pow(1 - p, 3);
+    ctx.drawImage(src, 0, 0, cv.width, cv.height);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cv.width / 2, cv.height / 2, Math.max(1, e * R), 0, Math.PI * 2);
+    ctx.clip();
+    ctx.lineWidth = 1.6 * dpr;
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.stroke(outline);
+    ctx.lineWidth = 0.8 * dpr;
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.stroke(outline);
+    ctx.restore();
+    if (p < 1) {
+      // a soft glint riding the edge of the cut
+      const g = ctx.createRadialGradient(cv.width / 2, cv.height / 2, Math.max(0, e * R - 30 * dpr), cv.width / 2, cv.height / 2, e * R + 4 * dpr);
+      g.addColorStop(0, 'rgba(255,255,255,0)');
+      g.addColorStop(0.85, `rgba(255,255,255,${0.35 * (1 - p)})`);
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      previewAnim = requestAnimationFrame(frame);
+    }
+  };
+  previewAnim = requestAnimationFrame(frame);
 }
 
 async function startPuzzle() {
@@ -319,6 +394,8 @@ function showComplete() {
 // ---------------- wiring ----------------
 
 const ICONS = {
+  piece: '<svg viewBox="15 15 70 70" width="44" height="44"><path fill="currentColor" d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>',
+  pieceSmall: '<svg viewBox="15 15 70 70" width="12" height="12"><path fill="currentColor" d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>',
   trash: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
 };
 
@@ -393,6 +470,11 @@ function wire() {
   document.addEventListener('gesturestart', (e) => e.preventDefault());
   document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
 }
+
+// The front screens sit on the same wooden table as the game.
+try {
+  document.documentElement.style.setProperty('--wood', `url(${surface('walnut', 512).toDataURL('image/jpeg', 0.85)})`);
+} catch {}
 
 // Handy for debugging in the browser console.
 window.puzzle = () => game;

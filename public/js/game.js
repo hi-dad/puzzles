@@ -121,6 +121,7 @@ export class Game {
     const pad = 20;
     const s = Math.min((this.w - 2 * pad) / this.rec.imgW, (this.boardH - 2 * pad) / this.rec.imgH) * 0.8;
     this.fitS = s;
+    this.texS ??= s; // texture scale reference, fixed so re-fitting never resizes the grain
     this.cam.s = s;
     this.cam.x = (this.w - this.rec.imgW * s) / 2;
     this.cam.y = (this.boardH - this.rec.imgH * s) / 2;
@@ -708,10 +709,11 @@ export class Game {
     const W = this.rec.imgW, H = this.rec.imgH;
     const pat = this.getPatterns();
 
-    // table surface: slides with the board when panning, keeps a constant grain size
+    // Table and mat textures are fixed to the board, so they pan and zoom with the pieces.
+    // At the fitted zoom the grain is ~2 texels per CSS pixel, crisp on Retina.
+    const tex = cam.s / this.texS;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const k = 0.55, tile = 1024 * k; // ~2 texels per CSS pixel keeps the grain crisp on Retina
-    pat.table.setTransform(new DOMMatrix([k, 0, 0, k, cam.x % tile, cam.y % tile]));
+    pat.table.setTransform(new DOMMatrix([0.55 * tex, 0, 0, 0.55 * tex, cam.x, cam.y]));
     ctx.fillStyle = pat.table;
     ctx.fillRect(0, 0, this.w, this.h);
     // soft overhead light
@@ -734,7 +736,7 @@ export class Game {
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
     // felt surface, with texture at a fixed on-screen size
-    pat.mat.setTransform(new DOMMatrix([0.5 / cam.s, 0, 0, 0.5 / cam.s, 0, 0]));
+    pat.mat.setTransform(new DOMMatrix([0.5 / this.texS, 0, 0, 0.5 / this.texS, 0, 0]));
     ctx.fillStyle = pat.mat;
     ctx.fillRect(0, 0, W, H);
     // inner bevel: shadow on the top/left, light catch on the bottom/right

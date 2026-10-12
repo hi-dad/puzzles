@@ -19,18 +19,29 @@
 </head>
 <body>
   <!-- Library -->
-  <section id="screen-library" class="screen scroll" hidden>
-    <header class="lib-header">
+  <section id="screen-library" class="screen scroll wood" hidden>
+    <header class="hero">
+      <div class="hero-pieces" aria-hidden="true">
+        <svg class="fp fp1" viewBox="15 15 70 70"><path d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>
+        <svg class="fp fp2" viewBox="15 15 70 70"><path d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>
+        <svg class="fp fp3" viewBox="15 15 70 70"><path d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>
+        <svg class="fp fp4" viewBox="15 15 70 70"><path d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>
+        <svg class="fp fp5" viewBox="15 15 70 70"><path d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>
+      </div>
+      <p id="greeting" class="eyebrow"></p>
       <h1>Puzzle Table</h1>
-      <p class="muted">Turn your photos into jigsaw puzzles.</p>
+      <p class="hero-sub">Turn any photo into a jigsaw.</p>
+      <div id="stats" class="stats"></div>
+      <a id="hero-cta" class="primary hero-cta" href="#/new" hidden>Make your first puzzle</a>
     </header>
+    <section id="continue" class="continue" hidden></section>
+    <h2 id="library-heading" class="section-title" hidden>Your puzzles</h2>
     <div id="library-grid" class="lib-grid"></div>
-    <p id="library-empty" class="muted empty" hidden>Your puzzles will appear here.</p>
   </section>
 
   <!-- New puzzle -->
-  <section id="screen-new" class="screen scroll" hidden>
-    <header class="bar">
+  <section id="screen-new" class="screen scroll wood" hidden>
+    <header class="bar new-bar">
       <a class="icon-btn" href="#/" aria-label="Back to library">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
       </a>
@@ -39,25 +50,30 @@
     <div class="new-body">
       <label id="photo-drop" class="photo-drop">
         <input type="file" id="photo-input" accept="image/*" hidden>
-        <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 8"/></svg>
+        <span class="drop-pieces" aria-hidden="true">
+          <svg class="dp dp1" viewBox="15 15 70 70"><path d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>
+          <svg class="dp dp2" viewBox="15 15 70 70"><path d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>
+          <svg class="dp dp3" viewBox="15 15 70 70"><path d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>
+        </span>
         <strong>Choose a photo</strong>
-        <span class="muted">from your library or camera</span>
+        <span class="drop-sub">A favourite memory, a pet, a place you love…</span>
+        <span class="drop-btn">Browse photos</span>
       </label>
       <div id="preview-wrap" class="preview-wrap" hidden>
         <canvas id="preview-canvas"></canvas>
         <button id="change-photo" class="link-btn" type="button">Choose a different photo</button>
       </div>
-      <div id="new-options" hidden>
+      <div id="new-options" class="panel" hidden>
         <div class="field">
-          <div class="label">Pieces</div>
+          <div class="label">How many pieces?</div>
           <div id="count-chips" class="chips"></div>
-          <div id="count-detail" class="muted small"></div>
+          <div id="count-detail" class="small detail"></div>
         </div>
         <div class="field">
           <label class="switch-row" for="rotate-input">
             <span>
               <strong>Rotate pieces</strong>
-              <span class="muted small">Harder: pieces start turned. Tap a piece to turn it.</span>
+              <span class="small detail">Harder: pieces start turned. Tap a piece to turn it.</span>
             </span>
             <input type="checkbox" id="rotate-input" class="switch">
           </label>
@@ -68,7 +84,7 @@
         </div>
       </div>
       <p id="new-error" class="error"></p>
-      <button id="start-btn" class="primary" type="button" disabled>Start puzzle</button>
+      <button id="start-btn" class="primary" type="button" disabled hidden>Start puzzle</button>
     </div>
   </section>
 
