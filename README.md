@@ -7,6 +7,9 @@ Turn your own photos into jigsaw puzzles and solve them in the browser, on iPhon
 - Real jigsaw shapes with a different random cut for every puzzle
 - Scrollable piece tray: swipe sideways to browse, swipe a piece up (or drag it with the mouse) to lift it, tap to drop it on the table
 - Pinch / trackpad zoom, drag to pan, pieces snap together and lock into the frame
+- Wooden table, felt-lined tray, puzzle mat and soft piece shadows (all drawn in code, no image files)
+- A white ripple of light runs through the pieces whenever they click into place
+- Sharp pieces even at 1000: the puzzle image is sized to the piece count (within iPhone memory limits)
 - Optional rotation mode: pieces start turned, tap one to turn it 90°
 - Adjustable tray piece size (⋯ menu)
 - "Edges only" tray filter, a faint picture on the board as a guide, table colours, sounds
@@ -24,6 +27,7 @@ No build step: `public/` is plain HTML/CSS/ES modules.
 - `public/js/logic.js`: pure snapping/grouping rules (unit-tested)
 - `public/js/game.js`: canvas board, tray, touch/mouse/trackpad input
 - `public/js/main.js`: screens (library, new puzzle, play), saving, timer
+- `public/js/textures.js`: procedural wood, felt and linen surfaces
 - `public/js/db.js`, `image.js`, `sound.js`: storage, photo prep, sound effects
 
 ## Roadmap

@@ -365,12 +365,13 @@ a { color: inherit; text-decoration: none; }
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
 }
 .menu .label { color: rgba(243, 236, 224, 0.6); }
-.swatches { display: flex; gap: 10px; margin-bottom: 12px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
 .swatch {
   width: 32px;
   height: 32px;
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.25);
+  background: #444 center / cover;
   cursor: pointer;
 }
 .swatch.on { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }

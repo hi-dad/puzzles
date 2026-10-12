@@ -1,8 +1,9 @@
 import { db, requestPersistence } from './db.js';
-import { preparePhoto, loadBlobImage } from './image.js';
+import { preparePhoto, loadBlobImage, puzzleImage } from './image.js';
 import { Cut, chooseGrid } from './geometry.js';
 import { shuffled } from './logic.js';
-import { Game, BACKGROUNDS } from './game.js';
+import { Game, BACKGROUNDS, DEFAULT_BG } from './game.js';
+import { swatchURL } from './textures.js';
 import { sfx } from './sound.js';
 
 const $ = (s) => document.querySelector(s);
@@ -174,13 +175,13 @@ async function startPuzzle() {
     rows,
     total: cols * rows,
     seed: draft.seed,
-    imgW: draft.photo.width,
-    imgH: draft.photo.height,
+    imgW: 0,
+    imgH: 0,
     thumb: draft.photo.thumb,
     elapsed: 0,
     placed: 0,
     done: false,
-    bg: 'felt',
+    bg: DEFAULT_BG,
     ghost: false,
     tray: shuffled(cols * rows),
     groups: [],
@@ -188,7 +189,10 @@ async function startPuzzle() {
     rot: rotate ? Array.from({ length: cols * rows }, () => (Math.random() * 4) | 0) : undefined,
   };
   try {
-    await db.putImage(id, draft.photo.blob);
+    const pic = await puzzleImage(draft.photo, cols);
+    rec.imgW = pic.width;
+    rec.imgH = pic.height;
+    await db.putImage(id, pic.blob);
     await db.put(rec);
     requestPersistence();
     location.hash = `#/play/${encodeURIComponent(id)}`;
@@ -346,16 +350,16 @@ function wire() {
   $('#btn-zoom-out').addEventListener('click', () => game.zoomBy(1 / 1.4));
   $('#btn-menu').addEventListener('click', (e) => {
     e.stopPropagation();
+    for (const b of document.querySelectorAll('.swatch:not([style])')) b.style.backgroundImage = `url(${swatchURL(b.dataset.bg)})`;
     $('#menu').hidden = !$('#menu').hidden;
   });
   document.addEventListener('pointerdown', (e) => {
     if (!$('#menu').hidden && !e.target.closest('#menu, #btn-menu')) closeMenu();
   });
   const swatches = $('#swatches');
-  for (const [key, { color }] of Object.entries(BACKGROUNDS)) {
-    const b = el('button', { className: 'swatch', title: key, ariaLabel: `${key} background` });
+  for (const [key, { label }] of Object.entries(BACKGROUNDS)) {
+    const b = el('button', { className: 'swatch', title: label, ariaLabel: `${label} table` });
     b.dataset.bg = key;
-    b.style.background = color;
     b.addEventListener('click', () => {
       game.setBackground(key);
       syncToggles();

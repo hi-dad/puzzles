@@ -125,6 +125,25 @@ export class Cut {
     ctx.lineWidth = 1;
     ctx.strokeStyle = 'rgba(0,0,0,0.25)';
     ctx.stroke(path);
-    return { canvas: cv, path };
+    return { canvas: cv, path, shadow: this.renderShadow(path, cv.width, cv.height) };
+  }
+
+  // A soft, low-resolution silhouette drawn under loose pieces.
+  renderShadow(path, w, h) {
+    const pad = Math.ceil(this.T * 0.14);
+    const sc = 0.25;
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.ceil((w + 2 * pad) * sc));
+    cv.height = Math.max(1, Math.ceil((h + 2 * pad) * sc));
+    const ctx = cv.getContext('2d');
+    // Draw the shape far off-canvas and let only its blurred shadow land in view.
+    const far = 10000;
+    ctx.setTransform(sc, 0, 0, sc, (pad - far) * sc, pad * sc);
+    ctx.shadowColor = '#000';
+    ctx.shadowBlur = Math.max(1, this.T * 0.05 * sc);
+    ctx.shadowOffsetX = far * sc;
+    ctx.translate(far, 0);
+    ctx.fill(path);
+    return { canvas: cv, pad, scale: sc };
   }
 }

@@ -4,14 +4,10 @@
 import { Cut } from './geometry.js';
 import { settle, placedCount } from './logic.js';
 import { sfx } from './sound.js';
+import { SURFACES, surface, trayFelt, matFelt } from './textures.js';
 
-export const BACKGROUNDS = {
-  felt: { color: '#2e4a3b', light: false },
-  walnut: { color: '#4b3526', light: false },
-  slate: { color: '#2f3a4a', light: false },
-  night: { color: '#17191e', light: false },
-  linen: { color: '#e8e1d2', light: true },
-};
+export const BACKGROUNDS = SURFACES;
+export const DEFAULT_BG = 'walnut';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -38,6 +34,7 @@ export class Game {
   constructor(canvas, rec, img, hooks = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+    this.ctx.imageSmoothingQuality = 'high';
     this.hit = document.createElement('canvas').getContext('2d');
     this.rec = rec;
     this.img = img;
@@ -48,8 +45,8 @@ export class Game {
     this.pieces = [];
     for (let i = 0; i < this.n; i++) {
       const col = i % rec.cols, row = (i / rec.cols) | 0;
-      const { canvas: cv, path } = this.cut.renderPiece(img, col, row);
-      this.pieces.push({ i, col, row, edge: this.cut.isEdge(col, row), canvas: cv, path });
+      const { canvas: cv, path, shadow } = this.cut.renderPiece(img, col, row);
+      this.pieces.push({ i, col, row, edge: this.cut.isEdge(col, row), canvas: cv, path, shadow });
     }
 
     this.groupOf = new Array(this.n).fill(null);
@@ -59,7 +56,7 @@ export class Game {
     for (const g of this.groups) for (const i of g.members) this.groupOf[i] = g;
     this.tray = [...rec.tray];
 
-    this.bg = BACKGROUNDS[rec.bg] ? rec.bg : 'felt';
+    this.bg = BACKGROUNDS[rec.bg] ? rec.bg : DEFAULT_BG;
     this.ghost = !!rec.ghost;
     this.edgesOnly = false;
     this.trayScale = savedTrayScale();
@@ -71,6 +68,7 @@ export class Game {
     this.m = null;
     this.drag = null;
     this.anim = null;
+    this.ripples = [];
     this.raf = 0;
 
     this.bind();
@@ -89,6 +87,7 @@ export class Game {
     this.dpr = dpr;
     this.canvas.width = Math.round(r.width * dpr);
     this.canvas.height = Math.round(r.height * dpr);
+    this.ctx.imageSmoothingQuality = 'high'; // resizing a canvas resets its context state
     this.rect = this.canvas.getBoundingClientRect();
     this.safeBottom = safeAreaBottom();
     const compact = this.w < 600 || this.h < 600;
@@ -187,6 +186,7 @@ export class Game {
 
   setBackground(key) {
     this.bg = key;
+    this.patterns = null;
     this.changed();
   }
 
@@ -245,13 +245,92 @@ export class Game {
       return;
     }
     const tol = this.cut.T * 0.22;
+    const dropped = [...g.members];
     const r = settle(g, { groups: this.groups, groupOf: this.groupOf, cols: this.rec.cols, rows: this.rec.rows, tol });
     if (r.locked) sfx.lock();
     else if (r.joined) sfx.snap();
     else sfx.drop();
-    if (r.locked || r.joined) this.flash = { g, t: performance.now() };
+    if (r.locked || r.joined) this.ripple(g, dropped, r.locked);
     this.checkDone();
     this.changed();
+  }
+
+  // A drop of light where the pieces landed, rippling out across the whole joined section.
+  ripple(g, dropped, strong) {
+    const { pw, ph, M, T } = this.cut;
+    let cx = 0, cy = 0;
+    for (const i of dropped) {
+      const pc = this.pieces[i];
+      cx += (pc.col + 0.5) * pw;
+      cy += (pc.row + 0.5) * ph;
+    }
+    cx /= dropped.length;
+    cy /= dropped.length;
+    let far = 0;
+    for (const i of g.members) {
+      const pc = this.pieces[i];
+      far = Math.max(far, Math.hypot((pc.col + 0.5) * pw - cx, (pc.row + 0.5) * ph - cy));
+    }
+    const maxR = Math.min(far + T, T * (strong ? 9 : 6));
+    const clip = new Path2D();
+    for (const i of g.members) {
+      const pc = this.pieces[i];
+      if (Math.hypot((pc.col + 0.5) * pw - cx, (pc.row + 0.5) * ph - cy) > maxR + T) continue;
+      clip.addPath(pc.path, new DOMMatrix([1, 0, 0, 1, pc.col * pw - M, pc.row * ph - M]));
+    }
+    this.ripples.push({ g, cx, cy, maxR, clip, strong, t0: performance.now(), dur: 650 + (maxR / T) * 70 });
+    this.redraw();
+  }
+
+  drawRipples(t) {
+    const { ctx, dpr, cam, cut } = this;
+    this.ripples = this.ripples.filter((rp) => t - rp.t0 < rp.dur && this.groups.includes(rp.g));
+    for (const rp of this.ripples) {
+      const k = Math.max(0, (t - rp.t0) / rp.dur);
+      const peak = rp.strong ? 1 : 0.85;
+      ctx.save();
+      this.groupTransform(rp.g, t);
+      // light catching the cuts between pieces
+      ctx.save();
+      ctx.globalAlpha = Math.pow(1 - k, 2) * (rp.strong ? 0.7 : 0.5);
+      ctx.shadowColor = '#fff';
+      ctx.shadowBlur = 14 * dpr;
+      ctx.lineWidth = 2 / cam.s;
+      ctx.strokeStyle = '#fff';
+      ctx.stroke(rp.clip);
+      ctx.restore();
+      ctx.clip(rp.clip);
+      ctx.globalCompositeOperation = 'screen';
+      // the initial splash of light
+      const splash = Math.pow(Math.max(0, 1 - k * 2.2), 2) * peak;
+      if (splash > 0) {
+        const r0 = cut.T * (0.6 + k * 2);
+        const sg = ctx.createRadialGradient(rp.cx, rp.cy, 0, rp.cx, rp.cy, r0);
+        sg.addColorStop(0, `rgba(255,255,255,${splash})`);
+        sg.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = sg;
+        ctx.fillRect(rp.cx - r0, rp.cy - r0, r0 * 2, r0 * 2);
+      }
+      // two expanding rings, like a drop on water
+      for (const delay of [0, 0.22]) {
+        const kk = (k - delay) / (1 - delay);
+        if (kk <= 0 || kk >= 1) continue;
+        const e = 1 - Math.pow(1 - kk, 2.2);
+        const r = e * rp.maxR;
+        const w = cut.T * (0.45 + 0.6 * kk);
+        const a = Math.pow(1 - kk, 1.2) * peak * (delay ? 0.7 : 1);
+        const inner = Math.max(0, r - w), outer = r + w;
+        const rg = ctx.createRadialGradient(rp.cx, rp.cy, inner, rp.cx, rp.cy, outer);
+        rg.addColorStop(0, 'rgba(255,255,255,0)');
+        rg.addColorStop(0.42, `rgba(255,255,255,${a * 0.55})`);
+        rg.addColorStop(0.5, `rgba(255,255,255,${a})`);
+        rg.addColorStop(0.58, `rgba(255,255,255,${a * 0.55})`);
+        rg.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = rg;
+        ctx.fillRect(rp.cx - outer, rp.cy - outer, outer * 2, outer * 2);
+      }
+      ctx.restore();
+    }
   }
 
   checkDone() {
@@ -558,7 +637,7 @@ export class Game {
         this.drop(a.g, { x: 0, y: 0 });
       } else more = true;
     }
-    if (this.flash && t - this.flash.t < 500) more = true;
+    if (this.ripples.length) more = true;
     for (const g of this.groups) if (g.spin) more = true;
     this.draw(t);
     if (more) this.redraw();
@@ -568,22 +647,53 @@ export class Game {
     const { ctx, dpr, cam, cut } = this;
     const bg = BACKGROUNDS[this.bg];
     const W = this.rec.imgW, H = this.rec.imgH;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = bg.color;
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    const pat = this.getPatterns();
 
-    // board
+    // table surface: slides with the board when panning, keeps a constant grain size
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const k = 0.55, tile = 1024 * k; // ~2 texels per CSS pixel keeps the grain crisp on Retina
+    pat.table.setTransform(new DOMMatrix([k, 0, 0, k, cam.x % tile, cam.y % tile]));
+    ctx.fillStyle = pat.table;
+    ctx.fillRect(0, 0, this.w, this.h);
+    // soft overhead light
+    const vg = ctx.createRadialGradient(this.w / 2, this.boardH * 0.45, Math.min(this.w, this.h) * 0.2,
+      this.w / 2, this.boardH * 0.45, Math.hypot(this.w, this.h) * 0.62);
+    vg.addColorStop(0, 'rgba(255,240,215,0.06)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.38)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, this.w, this.h);
+
+    // the puzzle mat
     ctx.setTransform(dpr * cam.s, 0, 0, dpr * cam.s, dpr * cam.x, dpr * cam.y);
-    ctx.fillStyle = bg.light ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.22)';
+    const pad = Math.max(cut.pw, cut.ph) * 0.06;
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 22 * dpr;
+    ctx.shadowOffsetY = 6 * dpr;
+    ctx.fillStyle = '#2a231d';
+    ctx.fillRect(-pad, -pad, W + 2 * pad, H + 2 * pad);
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    // felt surface, with texture at a fixed on-screen size
+    pat.mat.setTransform(new DOMMatrix([0.5 / cam.s, 0, 0, 0.5 / cam.s, 0, 0]));
+    ctx.fillStyle = pat.mat;
     ctx.fillRect(0, 0, W, H);
+    // inner bevel: shadow on the top/left, light catch on the bottom/right
+    const b = 3 / cam.s;
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(0, 0, W, b);
+    ctx.fillRect(0, 0, b, H);
+    ctx.fillStyle = 'rgba(255,235,210,0.08)';
+    ctx.fillRect(0, H - b / 2, W, b / 2);
+    ctx.fillRect(W - b / 2, 0, b / 2, H);
+    ctx.lineWidth = 1 / cam.s;
+    ctx.strokeStyle = 'rgba(255,235,210,0.18)';
+    ctx.strokeRect(-pad, -pad, W + 2 * pad, H + 2 * pad);
     if (this.ghost) {
-      ctx.globalAlpha = 0.3;
+      ctx.globalAlpha = 0.32;
       ctx.drawImage(this.img, 0, 0);
       ctx.globalAlpha = 1;
     }
-    ctx.lineWidth = 1.5 / cam.s;
-    ctx.strokeStyle = bg.light ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.22)';
-    ctx.strokeRect(0, 0, W, H);
 
     const view = {
       x0: -cam.x / cam.s, y0: -cam.y / cam.s,
@@ -591,34 +701,8 @@ export class Game {
     };
     for (const g of this.groups) if (g.locked) this.drawGroup(g, view);
     for (const g of this.groups) if (!g.locked && g !== this.drag) this.drawGroup(g, view);
-    if (this.drag) {
-      ctx.shadowColor = 'rgba(0,0,0,0.45)';
-      ctx.shadowBlur = 14 * dpr;
-      ctx.shadowOffsetY = 6 * dpr;
-      this.drawGroup(this.drag, view, this.overTray ? 0.6 : 1);
-      ctx.shadowColor = 'transparent';
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetY = 0;
-    }
-    if (this.flash) {
-      const k = (t - this.flash.t) / 500;
-      if (k < 1 && this.groups.includes(this.flash.g)) {
-        ctx.globalAlpha = 0.55 * (1 - k);
-        ctx.lineWidth = 3 / cam.s;
-        ctx.strokeStyle = '#fff6d6';
-        ctx.save();
-        this.groupTransform(this.flash.g, t);
-        for (const i of this.flash.g.members) {
-          const pc = this.pieces[i];
-          ctx.save();
-          ctx.translate(pc.col * cut.pw - cut.M, pc.row * cut.ph - cut.M);
-          ctx.stroke(pc.path);
-          ctx.restore();
-        }
-        ctx.restore();
-        ctx.globalAlpha = 1;
-      } else if (k >= 1) this.flash = null;
-    }
+    if (this.drag) this.drawGroup(this.drag, view, this.overTray ? 0.6 : 1, true);
+    if (this.ripples.length) this.drawRipples(t);
 
     this.drawTray();
   }
@@ -642,31 +726,89 @@ export class Game {
     if (g.r) ctx.rotate(g.r * Math.PI / 2);
   }
 
-  drawGroup(g, v, alpha = 1) {
+  drawGroup(g, v, alpha = 1, lifted = false) {
     const { ctx, cut } = this;
-    if (alpha !== 1) ctx.globalAlpha = alpha;
-    ctx.save();
-    this.groupTransform(g, performance.now());
-    const rad = Math.hypot(cut.pw, cut.ph) / 2 + cut.M;
-    for (const i of g.members) {
+    const rad = Math.hypot(cut.pw, cut.ph) / 2 + cut.M * 2;
+    const visible = g.members.filter((i) => {
       const pc = this.pieces[i];
       const c = turn((pc.col + 0.5) * cut.pw, (pc.row + 0.5) * cut.ph, g.r);
       const cx = g.x + c.x, cy = g.y + c.y;
-      if (cx - rad > v.x1 || cy - rad > v.y1 || cx + rad < v.x0 || cy + rad < v.y0) continue;
+      return !(cx - rad > v.x1 || cy - rad > v.y1 || cx + rad < v.x0 || cy + rad < v.y0);
+    });
+    if (!visible.length) return;
+    // Shadows first (offset "down" on screen whatever the piece's turn), then the pieces,
+    // so a group never shades itself.
+    if (!g.locked) {
+      const off = turn(0, cut.T * (lifted ? 0.16 : 0.035), 4 - g.r);
+      ctx.save();
+      this.groupTransform(g, performance.now());
+      ctx.translate(off.x, off.y);
+      ctx.globalAlpha = alpha * (lifted ? 0.42 : 0.5);
+      for (const i of visible) {
+        const pc = this.pieces[i], sh = pc.shadow;
+        ctx.drawImage(sh.canvas, pc.col * cut.pw - cut.M - sh.pad, pc.row * cut.ph - cut.M - sh.pad,
+          sh.canvas.width / sh.scale, sh.canvas.height / sh.scale);
+      }
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    this.groupTransform(g, performance.now());
+    for (const i of visible) {
+      const pc = this.pieces[i];
       ctx.drawImage(pc.canvas, pc.col * cut.pw - cut.M, pc.row * cut.ph - cut.M);
     }
     ctx.restore();
-    if (alpha !== 1) ctx.globalAlpha = 1;
+  }
+
+  getPatterns() {
+    if (!this.patterns) {
+      this.patterns = {
+        table: this.ctx.createPattern(surface(this.bg), 'repeat'),
+        tray: this.ctx.createPattern(trayFelt(), 'repeat'),
+        mat: this.ctx.createPattern(matFelt(), 'repeat'),
+        lip: this.ctx.createPattern(surface('walnut'), 'repeat'),
+      };
+    }
+    return this.patterns;
   }
 
   drawTray() {
     const { ctx, dpr, cut } = this;
     const top = this.h - this.trayH;
+    const pat = this.getPatterns();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = this.overTray ? 'rgba(20,16,12,0.78)' : 'rgba(20,16,12,0.62)';
+    // felt lining
+    pat.tray.setTransform(new DOMMatrix([0.8, 0, 0, 0.8, 0, 0]));
+    ctx.fillStyle = pat.tray;
     ctx.fillRect(0, top, this.w, this.trayH);
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.fillRect(0, top, this.w, 1);
+    if (this.overTray) {
+      ctx.fillStyle = 'rgba(255,230,190,0.08)';
+      ctx.fillRect(0, top, this.w, this.trayH);
+    }
+    // shadow cast by the lip onto the felt
+    const lipH = 9;
+    const sg = ctx.createLinearGradient(0, top + lipH, 0, top + lipH + 18);
+    sg.addColorStop(0, 'rgba(0,0,0,0.55)');
+    sg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sg;
+    ctx.fillRect(0, top + lipH, this.w, 18);
+    // wooden lip with a rounded highlight
+    pat.lip.setTransform(new DOMMatrix([0.35, 0, 0, 0.35, 0, top]));
+    ctx.fillStyle = pat.lip;
+    ctx.fillRect(0, top, this.w, lipH);
+    const lg = ctx.createLinearGradient(0, top, 0, top + lipH);
+    lg.addColorStop(0, 'rgba(255,225,180,0.35)');
+    lg.addColorStop(0.35, 'rgba(255,225,180,0.05)');
+    lg.addColorStop(1, 'rgba(0,0,0,0.45)');
+    ctx.fillStyle = lg;
+    ctx.fillRect(0, top, this.w, lipH);
+    // the lip also shades the table just above it
+    const ug = ctx.createLinearGradient(0, top - 14, 0, top);
+    ug.addColorStop(0, 'rgba(0,0,0,0)');
+    ug.addColorStop(1, 'rgba(0,0,0,0.35)');
+    ctx.fillStyle = ug;
+    ctx.fillRect(0, top - 14, this.w, 14);
 
     const list = this.trayList();
     const cy = this.trayCenterY();
