@@ -24,15 +24,19 @@ export default {
     const url = new URL(request.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
 
-    const email = await signedInEmail(request, env, ctx);
+    const diag = {};
+    const email = await signedInEmail(request, env, ctx, diag);
     if (!email) {
       // Say what was (not) received, to tell "Access isn't in front of this Worker" apart
-      // from "Access ran but sent no usable identity". No secrets are included.
+      // from "Access ran but sent no usable identity". No secrets or values are included.
       return json({
         error: 'Not signed in',
         accessRan: !!ctx.access,
+        accessAud: !!ctx.access?.aud,
         accessToken: request.headers.has('cf-access-jwt-assertion'),
         accessEmailHeader: request.headers.has('cf-access-authenticated-user-email'),
+        accessCookie: (request.headers.get('cookie') || '').includes('CF_Authorization'),
+        ...diag,
       }, 401);
     }
     try {
@@ -134,26 +138,34 @@ function json(body, status = 200) {
 // ---------- identity ----------
 
 // The email Cloudflare Access verified for this request, or null.
-async function signedInEmail(request, env, ctx) {
+async function signedInEmail(request, env, ctx, diag = {}) {
   const token = request.headers.get('cf-access-jwt-assertion');
   // Worker-level Access hands the identity to the Worker directly.
   if (ctx.access) {
     try {
       const who = await ctx.access.getIdentity();
+      diag.identityFields = who ? Object.keys(who) : null;
       const e = who?.email || who?.user?.email;
       if (e) return String(e).toLowerCase();
     } catch (err) {
+      diag.identityError = String(err?.message || err).slice(0, 200);
       console.error('getIdentity failed', err);
     }
     // Fall back to the signed token Access attached, checked against this Worker's own
     // Access audience and Cloudflare's published signing keys.
     if (token && ctx.access.aud) {
       const iss = peekIssuer(token);
+      diag.tokenIssuerOk = !!iss;
       if (iss) {
         const claims = await verifyAccessJwt(token, iss, ctx.access.aud);
+        diag.tokenVerified = !!claims;
         if (claims?.email) return String(claims.email).toLowerCase();
       }
     }
+    // Access ran in front of this request (ctx.access is only set when it did), and it
+    // sets this header itself from the identity it verified.
+    const header = request.headers.get('cf-access-authenticated-user-email');
+    if (header && header.includes('@')) return header.trim().toLowerCase();
   }
   // Otherwise (hostname-level Access app), verify the signed token Access attaches.
   // Needs TEAM_DOMAIN (https://<team>.cloudflareaccess.com) and POLICY_AUD set as vars.
