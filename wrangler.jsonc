@@ -29,6 +29,14 @@
     }
   ],
 
+  // Cloudflare Access: who may sign in is set in the dashboard (Worker → Access). These
+  // public identifiers let the Worker check that each request's signed login token was
+  // issued by this account's Access for this app.
+  "vars": {
+    "TEAM_DOMAIN": "https://old-cloud-6825.cloudflareaccess.com",
+    "POLICY_AUD": "d1a1dae14b62d6fd2d76414fadc2706d787a7dac94dca8d844bbf78a361ef0dc"
+  },
+
   "workers_dev": true,
   // No per-version preview URLs: one address, protected by Access.
   "preview_urls": false,
