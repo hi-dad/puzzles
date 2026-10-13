@@ -50,6 +50,19 @@ browser ──/api/*──► Worker (worker/index.js) ──► D1  (one row pe
 in `worker/schema.sql`. Deploys run `npx wrangler deploy`, either from your computer or
 automatically from GitHub via Cloudflare Workers Builds.
 
+Live at https://puzzles.daniel-ryan312.workers.dev — every push to this branch redeploys it.
+
+### Sign-in (Cloudflare Access)
+- Worker → **Access** → protect **All traffic**; the policy uses the **Emails** selector
+  (exact addresses), not "Email domain".
+- Login method: **One-time PIN** (Zero Trust → Integrations → Identity providers), so people
+  without a Cloudflare account get an emailed code.
+- The Worker verifies each request's signed `Cf-Access-Jwt-Assertion` token against
+  `TEAM_DOMAIN` and `POLICY_AUD` in `wrangler.jsonc` (public identifiers: the Access team
+  domain and this app's audience tag). If the Access app is ever recreated, its audience tag
+  changes: open `/api/me`, which lists `tokenAudience` when sign-in fails, and update
+  `POLICY_AUD`.
+
 ## Code map
 - `public/js/geometry.js`: grid sizing, seeded jigsaw cut, piece rendering
 - `public/js/logic.js`: pure snapping/grouping rules (unit-tested)
