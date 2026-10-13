@@ -36,6 +36,8 @@ export default {
         accessToken: request.headers.has('cf-access-jwt-assertion'),
         accessEmailHeader: request.headers.has('cf-access-authenticated-user-email'),
         accessCookie: (request.headers.get('cookie') || '').includes('CF_Authorization'),
+        // Public identifiers (not secrets), needed to pin TEAM_DOMAIN / POLICY_AUD.
+        ...tokenIds(request.headers.get('cf-access-jwt-assertion')),
         ...diag,
       }, 401);
     }
@@ -174,6 +176,16 @@ async function signedInEmail(request, env, ctx, diag = {}) {
     if (claims?.email) return String(claims.email).toLowerCase();
   }
   return null;
+}
+
+// The team domain and application audience a token claims (unverified; display only).
+function tokenIds(token) {
+  try {
+    const { iss, aud } = JSON.parse(b64text(token.split('.')[1]));
+    return { tokenIssuer: iss, tokenAudience: aud };
+  } catch {
+    return {};
+  }
 }
 
 // The token's issuer, only if it is a Cloudflare Access team domain (signature is
