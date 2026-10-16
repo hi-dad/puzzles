@@ -323,6 +323,7 @@ async function openGame(id) {
     onActivity() {
       lastActive = performance.now();
     },
+    onSelection: showSelection,
     onComplete() {
       saveNow();
       showComplete();
@@ -348,6 +349,9 @@ async function closeGame() {
   closeMenu();
   if (pieceGrid?.isOpen) pieceGrid.close();
   $('#complete').hidden = true;
+  $('#select-hint').hidden = true;
+  $('#btn-select').classList.remove('on');
+  $('#toast').hidden = true;
 }
 
 function onTick() {
@@ -438,6 +442,32 @@ function syncToggles() {
   $('#btn-sound').querySelector('span').textContent = sfx.enabled ? 'Sound on' : 'Sound off';
   for (const b of document.querySelectorAll('.swatch')) b.classList.toggle('on', b.dataset.bg === game.bg);
   $('#tray-size').value = game.trayScale;
+  const colour = game.traySort === 'colour';
+  $('#tray-sort').textContent = colour ? '● Sorted by colour' : 'Sort by colour';
+  $('#tray-sort').classList.toggle('on', colour);
+}
+
+// Selecting several pieces: highlight the button and explain what to do.
+function showSelection({ mode, groups, pieces }) {
+  $('#btn-select').classList.toggle('on', mode);
+  const hint = $('#select-hint');
+  hint.hidden = !mode && groups === 0;
+  if (hint.hidden) return;
+  const touch = matchMedia('(pointer: coarse)').matches;
+  $('#select-text').textContent = groups
+    ? `${pieces} piece${pieces === 1 ? '' : 's'} selected · drag one to move them all`
+    : touch
+      ? 'Tap pieces or drag a box around them · two fingers to move the table'
+      : 'Click pieces or drag a box around them';
+}
+
+let toastTimer = 0;
+function toast(text) {
+  const t = $('#toast');
+  t.textContent = text;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.hidden = true), 2600);
 }
 
 function closeMenu() {
@@ -503,6 +533,19 @@ function wire() {
   pieceGrid = grid;
   $('#btn-pieces').addEventListener('click', () => grid.open(game));
   $('#pieces-close').addEventListener('click', () => grid.close());
+  $('#btn-select').addEventListener('click', () => game.setSelectMode(!game.selectMode));
+  $('#select-done').addEventListener('click', () => game.setSelectMode(false));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && game && (game.selectMode || game.selected.size)) game.setSelectMode(false);
+  });
+  $('#btn-tidy').addEventListener('click', () => {
+    const n = game.tidy();
+    toast(n ? `Sent ${n} loose piece${n === 1 ? '' : 's'} back to the tray` : 'No loose pieces to tidy up');
+  });
+  $('#tray-sort').addEventListener('click', () => {
+    game.setTraySort(game.traySort === 'colour' ? 'mixed' : 'colour');
+    syncToggles();
+  });
   $('#btn-zoom-in').addEventListener('click', () => game.zoomBy(1.4));
   $('#btn-zoom-out').addEventListener('click', () => game.zoomBy(1 / 1.4));
   $('#btn-menu').addEventListener('click', (e) => {

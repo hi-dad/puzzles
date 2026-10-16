@@ -132,10 +132,26 @@
         <button id="btn-zoom-in" class="icon-btn" type="button" aria-label="Zoom in">+</button>
         <button id="btn-zoom-out" class="icon-btn" type="button" aria-label="Zoom out">−</button>
       </div>
-      <button id="btn-pieces" class="tray-expand" type="button" aria-label="See all pieces">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
-        <span>All pieces</span>
-      </button>
+      <div class="table-tools">
+        <button id="btn-pieces" class="tool-pill" type="button" aria-label="See all pieces in the tray">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
+          <span>Pieces</span>
+        </button>
+        <button id="btn-select" class="tool-pill" type="button" aria-label="Select several pieces to move together">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h4M12 4h4M20 4v4M20 12v4M4 8v4M4 16v4h4M12 20h4"/><path d="M13 13l7 3-3 1-1 3z" fill="currentColor"/></svg>
+          <span>Select</span>
+        </button>
+        <button id="btn-tidy" class="tool-pill" type="button" aria-label="Send loose pieces back to the tray">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11M7.5 9.5L12 14l4.5-4.5"/><path d="M4 15v4a1 1 0 001 1h14a1 1 0 001-1v-4"/></svg>
+          <span>Tidy</span>
+        </button>
+      </div>
+      <button id="tray-sort" class="tray-sort" type="button" aria-label="Sort the tray by colour"></button>
+      <div id="select-hint" class="select-hint" hidden>
+        <span id="select-text"></span>
+        <button id="select-done" type="button">Done</button>
+      </div>
+      <div id="toast" class="toast" hidden></div>
       <div id="play-loading" class="loading" hidden>Cutting pieces…</div>
     </div>
     <div id="pieces-panel" class="pieces-panel" hidden>

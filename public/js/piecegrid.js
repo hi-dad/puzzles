@@ -15,7 +15,6 @@ export class PieceGrid {
     this.onClose = onClose;
     this.ctx = els.canvas.getContext('2d');
     this.size = savedSize;
-    this.sort = 'mixed';
     this.selected = [];
     this.raf = 0;
     els.scroll.addEventListener('scroll', () => this.redraw(), { passive: true });
@@ -65,24 +64,21 @@ export class PieceGrid {
     return !this.els.panel.hidden;
   }
 
+  // Shares the tray's sort, so the grid and the tray always agree.
   setSort(mode) {
-    this.sort = mode;
+    this.game.setTraySort(mode);
     this.els.scroll.scrollTop = 0;
     this.refresh();
   }
 
   refresh() {
     const g = this.game;
-    let list = g.trayList();
-    if (this.sort === 'colour') {
-      const keys = g.colourKeys();
-      list = [...list].sort((a, b) => keys[a] - keys[b]);
-    }
+    const list = g.trayList();
     this.list = list;
     this.selected = this.selected.filter((i) => list.includes(i));
     this.els.edges.classList.toggle('on', g.edgesOnly);
-    this.els.sortMixed.classList.toggle('on', this.sort === 'mixed');
-    this.els.sortColour.classList.toggle('on', this.sort === 'colour');
+    this.els.sortMixed.classList.toggle('on', g.traySort === 'mixed');
+    this.els.sortColour.classList.toggle('on', g.traySort === 'colour');
     const what = g.edgesOnly ? 'edge pieces' : 'pieces';
     this.els.title.textContent = `${list.length} ${what} in the tray`;
     this.updateFooter();

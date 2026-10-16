@@ -22,6 +22,13 @@ function turn(x, y, r) {
 }
 
 export const TRAY_SIZE = { min: 0.7, max: 1.8 };
+function savedTraySort() {
+  try {
+    return localStorage.getItem('pt-traysort') === 'colour' ? 'colour' : 'mixed';
+  } catch {
+    return 'mixed';
+  }
+}
 function savedTrayScale() {
   try {
     const v = parseFloat(localStorage.getItem('pt-tray'));
@@ -59,6 +66,10 @@ export class Game {
     this.bg = BACKGROUNDS[rec.bg] ? rec.bg : DEFAULT_BG;
     this.ghost = !!rec.ghost;
     this.edgesOnly = false;
+    this.traySort = savedTraySort();
+    this.trayVer = 0; // bumped whenever what the tray shows changes
+    this.selected = new Set(); // loose groups picked for moving together
+    this.selectMode = false;
     this.trayScale = savedTrayScale();
     this.cam = { s: 1, x: 0, y: 0 };
     this.trayScroll = 0;
@@ -66,7 +77,7 @@ export class Game {
     this.ptrs = new Map();
     this.mode = null;
     this.m = null;
-    this.drag = null;
+    this.dragSet = new Set();
     this.anim = null;
     this.ripples = [];
     this.raf = 0;
@@ -152,7 +163,25 @@ export class Game {
   // ---------- tray ----------
 
   trayList() {
-    return this.edgesOnly ? this.tray.filter((i) => this.pieces[i].edge) : this.tray;
+    const key = `${this.trayVer}:${this.tray.length}:${this.edgesOnly}:${this.traySort}`;
+    if (this.trayCache?.key === key) return this.trayCache.list;
+    let list = this.edgesOnly ? this.tray.filter((i) => this.pieces[i].edge) : this.tray;
+    if (this.traySort === 'colour') {
+      const keys = this.colourKeys();
+      list = [...list].sort((a, b) => keys[a] - keys[b]);
+    }
+    this.trayCache = { key, list };
+    return list;
+  }
+
+  setTraySort(mode) {
+    this.traySort = mode === 'colour' ? 'colour' : 'mixed';
+    try {
+      localStorage.setItem('pt-traysort', this.traySort);
+    } catch {}
+    this.trayScroll = 0;
+    this.trayVer++;
+    this.redraw();
   }
 
   clampTray() {
@@ -176,6 +205,7 @@ export class Game {
 
   setEdgesOnly(v) {
     this.edgesOnly = v;
+    this.trayVer++;
     this.trayScroll = 0;
     this.redraw();
   }
@@ -195,6 +225,7 @@ export class Game {
 
   pull(idx, p) {
     this.tray.splice(this.tray.indexOf(idx), 1);
+    this.trayVer++;
     const pc = this.pieces[idx];
     const w = this.toWorld(p.x, p.y);
     const r = this.rotate ? this.rot[idx] : 0;
@@ -277,11 +308,73 @@ export class Game {
 
   returnToTray(g) {
     this.groups.splice(this.groups.indexOf(g), 1);
+    this.selected.delete(g);
     const idx = g.members[0];
     this.groupOf[idx] = null;
     this.rot[idx] = g.r;
     this.tray.unshift(idx);
+    this.trayVer++;
     this.trayScroll = 0;
+  }
+
+  // Send every single loose piece on the table back to the tray. Pieces locked into the
+  // frame and clusters already joined together stay where they are.
+  tidy() {
+    const loose = this.groups.filter((g) => !g.locked && g.members.length === 1);
+    for (const g of loose) this.returnToTray(g);
+    if (loose.length) {
+      sfx.drop();
+      this.changed();
+      this.selectionChanged();
+    }
+    return loose.length;
+  }
+
+  // ---------- selecting several pieces ----------
+
+  setSelectMode(on) {
+    this.selectMode = on;
+    if (!on) this.selected.clear();
+    this.selectionChanged();
+  }
+
+  toggleSelected(g) {
+    if (g.locked) return;
+    if (this.selected.has(g)) this.selected.delete(g);
+    else this.selected.add(g);
+    this.selectionChanged();
+  }
+
+  // Keep the selection to loose groups that still exist (after joins/locks/tray returns).
+  pruneSelection() {
+    for (const g of this.selected) if (g.locked || !this.groups.includes(g)) this.selected.delete(g);
+  }
+
+  selectionChanged() {
+    this.pruneSelection();
+    let pieces = 0;
+    for (const g of this.selected) pieces += g.members.length;
+    this.hooks.onSelection?.({ mode: this.selectMode, groups: this.selected.size, pieces });
+    this.redraw();
+  }
+
+  // Loose groups with at least one piece centre inside the world-space rectangle.
+  groupsInRect(x0, y0, x1, y1) {
+    const { pw, ph } = this.cut;
+    const out = [];
+    for (const g of this.groups) {
+      if (g.locked) continue;
+      for (const i of g.members) {
+        const pc = this.pieces[i];
+        const c = turn((pc.col + 0.5) * pw, (pc.row + 0.5) * ph, g.r);
+        const x = g.x + c.x, y = g.y + c.y;
+        if (x >= x0 && x <= x1 && y >= y0 && y <= y1) {
+          out.push(g);
+          break;
+        }
+      }
+    }
+    return out;
   }
 
   // Turn a loose group a quarter clockwise around the world point (px, py).
@@ -298,19 +391,33 @@ export class Game {
   }
 
   drop(g, p) {
-    if (this.inTray(p.y) && g.members.length === 1 && !g.locked) {
-      this.returnToTray(g);
+    this.dropMany([g], p);
+  }
+
+  // Drop one or more groups that were moved together. Over the tray, single pieces go back
+  // into it; otherwise each group snaps to the frame / its neighbours as usual.
+  dropMany(list, p) {
+    if (this.inTray(p.y) && list.every((g) => g.members.length === 1 && !g.locked)) {
+      for (const g of list) this.returnToTray(g);
       sfx.drop();
       this.changed();
+      this.selectionChanged();
       return;
     }
     const tol = this.cut.T * 0.22;
-    const dropped = [...g.members];
-    const r = settle(g, { groups: this.groups, groupOf: this.groupOf, cols: this.rec.cols, rows: this.rec.rows, tol });
-    if (r.locked) sfx.lock();
-    else if (r.joined) sfx.snap();
+    let locked = false, joined = false;
+    for (const g of list) {
+      if (!this.groups.includes(g)) continue; // already merged into another moved group
+      const dropped = [...g.members];
+      const r = settle(g, { groups: this.groups, groupOf: this.groupOf, cols: this.rec.cols, rows: this.rec.rows, tol });
+      if (r.locked || r.joined) this.ripple(g, dropped, r.locked);
+      locked ||= r.locked;
+      joined ||= r.joined > 0;
+    }
+    if (locked) sfx.lock();
+    else if (joined) sfx.snap();
     else sfx.drop();
-    if (r.locked || r.joined) this.ripple(g, dropped, r.locked);
+    this.selectionChanged();
     this.checkDone();
     this.changed();
   }
@@ -517,9 +624,16 @@ export class Game {
       };
       return;
     }
+    const picking = this.selectMode || e.shiftKey;
     const g = this.hitBoard(p.x, p.y);
-    if (g) this.beginDrag(g, p, e.pointerId);
-    else {
+    if (g) {
+      this.beginDrag(g, p, e.pointerId);
+      this.m.toggle = picking; // a tap selects/deselects instead of turning the piece
+    } else if (picking) {
+      // drag a box to select everything inside it
+      this.mode = 'lasso';
+      this.m = { id: e.pointerId, x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+    } else {
       this.mode = 'pan';
       this.m = { id: e.pointerId, lx: p.x, ly: p.y };
     }
@@ -527,11 +641,19 @@ export class Game {
 
   beginDrag(g, p, id) {
     const w = this.toWorld(p.x, p.y);
-    this.groups.splice(this.groups.indexOf(g), 1);
-    this.groups.push(g);
+    // Grabbing a selected piece moves the whole selection with it.
+    this.pruneSelection();
+    const list = this.selected.has(g) ? [...this.selected] : [g];
+    for (const x of list) {
+      this.groups.splice(this.groups.indexOf(x), 1);
+      this.groups.push(x);
+    }
     this.mode = 'piece';
-    this.m = { id, g, gx: w.x - g.x, gy: w.y - g.y, x0: p.x, y0: p.y, moved: false, fromTray: false };
-    this.drag = g;
+    this.m = {
+      id, g, list: list.map((x) => ({ g: x, gx: w.x - x.x, gy: w.y - x.y })),
+      x0: p.x, y0: p.y, moved: false, fromTray: false,
+    };
+    this.dragSet = new Set(list);
     sfx.pick();
     this.redraw();
   }
@@ -555,9 +677,15 @@ export class Game {
       const w = this.toWorld(p.x, p.y);
       if (!m.moved && Math.hypot(p.x - m.x0, p.y - m.y0) < 6) return;
       m.moved = true;
-      m.g.x = w.x - m.gx;
-      m.g.y = w.y - m.gy;
-      this.overTray = this.inTray(p.y) && m.g.members.length === 1;
+      for (const it of m.list) {
+        it.g.x = w.x - it.gx;
+        it.g.y = w.y - it.gy;
+      }
+      this.overTray = this.inTray(p.y) && m.list.every((it) => it.g.members.length === 1);
+      this.redraw();
+    } else if (this.mode === 'lasso') {
+      m.x1 = p.x;
+      m.y1 = p.y;
       this.redraw();
     } else if (this.mode === 'tray') {
       const dx = p.x - m.x0, dy = p.y - m.y0;
@@ -604,12 +732,26 @@ export class Game {
     if (!m || m.id !== e.pointerId) return;
 
     if (this.mode === 'piece') {
-      this.drag = null;
+      this.dragSet = new Set();
       this.overTray = false;
-      if (!m.moved && this.rotate && e.type === 'pointerup') {
+      const tap = !m.moved && e.type === 'pointerup';
+      if (tap && m.toggle) this.toggleSelected(m.g);
+      else if (tap && this.rotate && m.list.length === 1) {
         const w = this.toWorld(p.x, p.y);
         this.spin(m.g, w.x, w.y);
-      } else this.drop(m.g, p);
+      } else this.dropMany(m.list.map((it) => it.g), p);
+    } else if (this.mode === 'lasso') {
+      if (Math.hypot(m.x1 - m.x0, m.y1 - m.y0) < 6) {
+        this.selected.clear(); // tap on empty table clears the selection
+      } else {
+        const a = this.toWorld(Math.min(m.x0, m.x1), Math.min(m.y0, m.y1));
+        const b = this.toWorld(Math.max(m.x0, m.x1), Math.max(m.y0, m.y1));
+        for (const g of this.groupsInRect(a.x, a.y, b.x, b.y)) this.selected.add(g);
+      }
+      this.mode = null;
+      this.m = null;
+      this.selectionChanged();
+      return;
     } else if (this.mode === 'tray') {
       if (m.scrolling) {
         this.trayVel = m.vel;
@@ -770,11 +912,52 @@ export class Game {
       x1: (this.w - cam.x) / cam.s, y1: (this.h - cam.y) / cam.s,
     };
     for (const g of this.groups) if (g.locked) this.drawGroup(g, view);
-    for (const g of this.groups) if (!g.locked && g !== this.drag) this.drawGroup(g, view);
-    if (this.drag) this.drawGroup(this.drag, view, this.overTray ? 0.6 : 1, true);
+    for (const g of this.groups) if (!g.locked && !this.dragSet.has(g)) this.drawGroup(g, view);
+    for (const g of this.dragSet) this.drawGroup(g, view, this.overTray ? 0.6 : 1, true);
+    if (this.selected.size) this.drawSelection(t);
     if (this.ripples.length) this.drawRipples(t);
 
     this.drawTray();
+    if (this.mode === 'lasso' && this.m) this.drawLasso();
+  }
+
+  drawLasso() {
+    const { ctx, dpr, m } = this;
+    const x = Math.min(m.x0, m.x1), y = Math.min(m.y0, m.y1);
+    const w = Math.abs(m.x1 - m.x0), h = Math.abs(m.y1 - m.y0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = 'rgba(255, 210, 122, 0.12)';
+    ctx.fillRect(x, y, w, h);
+    ctx.setLineDash([6, 5]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#ffd27a';
+    ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    ctx.setLineDash([]);
+  }
+
+  // A warm outline around every selected piece.
+  drawSelection(t) {
+    const { ctx, cam, cut } = this;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    for (const g of this.selected) {
+      ctx.save();
+      this.groupTransform(g, t);
+      for (const i of g.members) {
+        const pc = this.pieces[i];
+        ctx.save();
+        ctx.translate(pc.col * cut.pw - cut.M, pc.row * cut.ph - cut.M);
+        ctx.lineWidth = 6 / cam.s;
+        ctx.strokeStyle = 'rgba(255, 200, 110, 0.35)';
+        ctx.stroke(pc.path);
+        ctx.lineWidth = 2 / cam.s;
+        ctx.strokeStyle = '#ffd27a';
+        ctx.stroke(pc.path);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
   // Set the context so drawing at a piece's solved position lands where group g is now.
