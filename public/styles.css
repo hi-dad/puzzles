@@ -727,6 +727,20 @@ a { color: inherit; text-decoration: none; }
 .signin-card { text-align: center; }
 .signin-buttons { display: flex; flex-direction: column; align-items: center; gap: 12px; min-height: 44px; }
 .apple-btn { width: 280px; height: 44px; cursor: pointer; }
+.native-signin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 280px;
+  height: 46px;
+  border-radius: 999px;
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.native-signin.apple { background: #000; color: #fff; border: 0; }
+.native-signin.google { background: #fff; color: #1f1f1f; border: 1px solid #dadce0; }
 #signin-dev { width: 280px; min-height: 44px; }
 .signin-note { font-size: 13px; margin-top: 14px !important; margin-bottom: 0 !important; }
 .signin-card .error { min-height: 0; }

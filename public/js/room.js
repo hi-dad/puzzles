@@ -2,6 +2,8 @@
 // sends this player's moves and hands everyone else's to the game. Reconnects by itself if
 // the connection drops; the room then sends the whole board again.
 
+import { app, apiBase } from './native.js';
+
 const DRAG_EVERY = 70; // ms between drag updates (about 14 a second)
 
 export class Room {
@@ -17,8 +19,12 @@ export class Room {
   }
 
   open() {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/api/rooms/${encodeURIComponent(this.id)}`);
+    const path = `/api/rooms/${encodeURIComponent(this.id)}`;
+    // In the app, the sign-in token travels as a WebSocket sub-protocol (browsers can't
+    // add headers to WebSockets); on the website the sign-in cookie does the job.
+    const ws = app
+      ? new WebSocket(apiBase.replace(/^http/, 'ws') + path, ['poozles', app.token || ''])
+      : new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${path}`);
     this.ws = ws;
     ws.onopen = () => {
       ws.opened = true;

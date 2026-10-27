@@ -7,6 +7,7 @@
 // missing, and the app quietly stays device-only.
 
 import { db } from './db.js';
+import { app, apiBase, authHeaders, post as postNative } from './native.js';
 
 // While playing, upload at most every 30 s (each upload is one database write); leaving
 // the puzzle, hiding the app or closing the page uploads straight away.
@@ -23,7 +24,11 @@ class NoBackend extends Error {}
 async function api(path, opts = {}) {
   let res;
   try {
-    res = await fetch(path, { credentials: 'same-origin', ...opts });
+    res = await fetch(apiBase + path, {
+      credentials: app ? 'omit' : 'same-origin',
+      ...opts,
+      headers: { ...authHeaders(), ...(opts.headers || {}) },
+    });
   } catch {
     throw new TypeError('offline');
   }
@@ -188,10 +193,15 @@ export const cloud = {
     const res = await api(`/api/auth/${provider}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ idToken, name }),
+      body: JSON.stringify({ idToken, name, app: !!app }),
     }).catch(() => null);
     if (!res?.ok) return false;
-    email = (await res.json()).email;
+    const body = await res.json();
+    email = body.email;
+    if (app && body.token) {
+      app.token = body.token;
+      postNative('storeToken', { token: body.token });
+    }
     setStatus('synced');
     return true;
   },
@@ -204,6 +214,10 @@ export const cloud = {
       method: deleteAccount ? 'DELETE' : 'POST',
     }).catch(() => null);
     if (deleteAccount && !res?.ok) return false;
+    if (app) {
+      app.token = null;
+      postNative('signedOut'); // the app forgets its saved token
+    }
     await db.clear();
     email = null;
     setStatus('signed-out');

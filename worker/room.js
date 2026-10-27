@@ -43,7 +43,9 @@ export class PuzzleRoom extends DurableObject {
       holds: this.sockets().filter((ws) => ws !== server).map((ws) => holdMsg(ws.deserializeAttachment())),
     }));
     this.broadcast({ t: 'players', players: this.players() }, server);
-    return new Response(null, { status: 101, webSocket: client });
+    // The app sends its sign-in as a sub-protocol; the reply has to name it back.
+    const app = (request.headers.get('sec-websocket-protocol') || '').startsWith('poozles');
+    return new Response(null, { status: 101, webSocket: client, headers: app ? { 'sec-websocket-protocol': 'poozles' } : {} });
   }
 
   async webSocketMessage(ws, data) {

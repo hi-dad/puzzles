@@ -5,6 +5,7 @@ import { Cut, chooseGrid } from './geometry.js';
 import { shuffled } from './logic.js';
 import { FORMAT_VERSION, canOpen } from './format.js';
 import { Room } from './room.js';
+import { app, site, post as postNative } from './native.js';
 import { Game, BACKGROUNDS, MATS, TRAYS, DEFAULT_BG } from './game.js';
 import { swatchURL, matSwatchURL } from './textures.js';
 import { PieceGrid } from './piecegrid.js';
@@ -439,10 +440,10 @@ async function openShare() {
     await closeGame();
     await openGame(id); // reopen as a shared puzzle, connected to its room
   }
-  const link = `${location.origin}/join/${code}`;
+  const link = `${site}/join/${code}`;
   $('#share-code').textContent = code;
   $('#share-link').textContent = link.replace(/^https?:\/\//, '');
-  $('#share-native').hidden = !navigator.share;
+  $('#share-native').hidden = !app && !navigator.share;
   $('#share').hidden = false;
   $('#share').dataset.link = link;
 }
@@ -655,6 +656,13 @@ function loadScript(src) {
 
 // Load Apple's and Google's sign-in buttons the first time the sheet opens.
 async function prepareSignIn() {
+  if (app) {
+    // The iPhone app signs in with its own native Apple and Google sheets.
+    $('#signin-native-apple').hidden = false;
+    $('#signin-native-google').hidden = false;
+    $('#signin-dev').hidden = !(await cloud.config()).dev; // only on a test server
+    return;
+  }
   const cfg = await cloud.config();
   const tasks = [];
   if (cfg.appleServicesId) {
@@ -687,6 +695,10 @@ async function finishSignIn(provider, idToken, name) {
     $('#signin-error').textContent = 'Sign-in didn’t work. Please try again.';
     return;
   }
+  await afterSignIn();
+}
+
+async function afterSignIn() {
   $('#signin').hidden = true;
   rememberSignedIn(true);
   await syncNow();
@@ -912,6 +924,12 @@ function wire() {
   });
   $('#btn-account').addEventListener('click', () => (cloud.email ? openAccount() : openSignIn()));
   $('#signin-cancel').addEventListener('click', () => ($('#signin').hidden = true));
+  for (const provider of ['apple', 'google']) {
+    $(`#signin-native-${provider}`).addEventListener('click', () => {
+      $('#signin-error').textContent = '';
+      postNative('signIn', { provider });
+    });
+  }
   $('#signin-dev').addEventListener('click', async () => {
     // Local development only: sign in as anyone, to try playing together in two browsers.
     const name = prompt('Developer sign-in: play as (a first name)', 'Alice');
@@ -932,6 +950,7 @@ function wire() {
     } catch {}
   });
   $('#share-native').addEventListener('click', () => {
+    if (app) return postNative('share', { title: 'Play Poozles with me', url: $('#share').dataset.link });
     navigator.share?.({ title: 'Play Poozles with me', url: $('#share').dataset.link }).catch(() => {});
   });
   $('#notice-ok').addEventListener('click', () => ($('#notice').hidden = true));
@@ -984,6 +1003,24 @@ if (invite) {
   pendingJoin = invite.toUpperCase();
   history.replaceState(null, '', '/#/');
 }
+
+// Messages from the iPhone app (see app/Poozles/GameView.swift).
+window.poozlesNativeEvent = async (e) => {
+  if (e.type === 'signedIn') {
+    app.token = e.token;
+    await cloud.init();
+    await afterSignIn();
+  } else if (e.type === 'signInFailed' && !e.cancelled) {
+    $('#signin-error').textContent = 'Sign-in didn’t work. Please try again.';
+  } else if (e.type === 'join') {
+    // An invite link opened the app.
+    if (cloud.email) joinByCode(e.code);
+    else {
+      pendingJoin = e.code;
+      openSignIn('Sign in to join the puzzle.');
+    }
+  }
+};
 
 wire();
 route();

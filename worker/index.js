@@ -33,30 +33,57 @@ import { nameOf } from './auth.js';
 export { PuzzleRoom } from './room.js';
 
 const ID = /^[A-Za-z0-9-]{8,64}$/;
+const APP_ORIGIN = 'poozles://app'; // the iPhone app's game files (app/Poozles/GameFiles.swift)
+const APP_ID = '4J889SV3P4.app.poozles'; // Apple team ID + bundle ID
+
+// Lets the iPhone/iPad app open https://poozles.app/join/... invite links itself.
+const APPLE_APP_SITE_ASSOCIATION = { applinks: { details: [{ appIDs: [APP_ID], components: [{ '/': '/join/*' }] }] } };
 const MAX_RECORD = 1_500_000; // bytes of JSON per puzzle (1000 pieces ≈ 100 KB)
 const MAX_IMAGE = 20_000_000; // bytes per photo
 
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
-    // The old workers.dev address forwards to the real one.
-    if (url.hostname.endsWith('.workers.dev')) return Response.redirect(`https://poozles.app${url.pathname}${url.search}`, 301);
-    // Invite links (/join/CODE) open the app, which picks the code up from ?join=.
-    const invite = url.pathname.match(/^\/join\/([A-Za-z0-9]{6})\/?$/);
-    if (invite) return Response.redirect(`${url.origin}/?join=${invite[1].toUpperCase()}`, 302);
-    if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
-    try {
-      const open = await publicApi(request, env, url);
-      if (open) return open;
-      const email = await sessionEmail(request, env);
-      if (!email) return json({ error: 'Not signed in' }, 401);
-      return await api(request, env, url, email);
-    } catch (err) {
-      console.error(err);
-      return json({ error: 'Something went wrong' }, 500);
-    }
+    // The app's game files live at poozles://app/, so its calls to this API are
+    // cross-origin; it signs them with a token (no cookies), so allowing it is safe.
+    const fromApp = request.headers.get('origin') === APP_ORIGIN;
+    if (fromApp && request.method === 'OPTIONS') return new Response(null, { status: 204, headers: appCors() });
+    const res = await route(request, env);
+    if (!fromApp || res.status === 101) return res;
+    const out = new Response(res.body, res);
+    for (const [k, v] of Object.entries(appCors())) out.headers.set(k, v);
+    return out;
   },
 };
+
+function appCors() {
+  return {
+    'access-control-allow-origin': APP_ORIGIN,
+    'access-control-allow-methods': 'GET, PUT, POST, DELETE, OPTIONS',
+    'access-control-allow-headers': 'authorization, content-type',
+    'access-control-max-age': '86400',
+  };
+}
+
+async function route(request, env) {
+  const url = new URL(request.url);
+  if (url.pathname === '/.well-known/apple-app-site-association') return json(APPLE_APP_SITE_ASSOCIATION, 200, { 'cache-control': 'public, max-age=3600' });
+  // The old workers.dev address forwards to the real one.
+  if (url.hostname.endsWith('.workers.dev')) return Response.redirect(`https://poozles.app${url.pathname}${url.search}`, 301);
+  // Invite links (/join/CODE) open the app, which picks the code up from ?join=.
+  const invite = url.pathname.match(/^\/join\/([A-Za-z0-9]{6})\/?$/);
+  if (invite) return Response.redirect(`${url.origin}/?join=${invite[1].toUpperCase()}`, 302);
+  if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
+  try {
+    const open = await publicApi(request, env, url);
+    if (open) return open;
+    const email = await sessionEmail(request, env);
+    if (!email) return json({ error: 'Not signed in' }, 401);
+    return await api(request, env, url, email);
+  } catch (err) {
+    console.error(err);
+    return json({ error: 'Something went wrong' }, 500);
+  }
+}
 
 // Routes that work without a session. Returns null for anything else.
 async function publicApi(request, env, url) {

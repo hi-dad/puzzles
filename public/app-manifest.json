@@ -1,0 +1,94 @@
+{
+ "version": "b7aa31ca04e45ae4",
+ "minApp": 1,
+ "files": [
+  {
+   "path": "icon-180.png",
+   "sha256": "19338ca366e843b6c7bd83ae80e0d0e4ba79c53760c341632385ecc8e816d9c1"
+  },
+  {
+   "path": "icon-512.png",
+   "sha256": "addf56ae5bc68be2660fdcaab5644bc173ffb5b3c266bdf1ba4e47cb02d74b33"
+  },
+  {
+   "path": "icon.svg",
+   "sha256": "f339fb0f659e241a3842da762bd9acbc1e984ab16e6eb0c70931c87c079af9c8"
+  },
+  {
+   "path": "index.html",
+   "sha256": "346cf60c3de8ee1ca30f724f41dff34cc61410e71cbbed9589a6d394006d0d14"
+  },
+  {
+   "path": "js/db.js",
+   "sha256": "5e6405bde530da3be68f0664392d7f686c5194b1b02804c7bd2d097d8882cff5"
+  },
+  {
+   "path": "js/format.js",
+   "sha256": "f83fd10d406e8e46a202bce2288cc9222d38b7a8ba5862b268aa8a4210df2155"
+  },
+  {
+   "path": "js/game.js",
+   "sha256": "6e231b949c9752589d227a0c43f150eb234d90a3cc2e197742fd9a037ae6bf07"
+  },
+  {
+   "path": "js/geometry.js",
+   "sha256": "9d4befd2b0e157f7d622fbcb38375f6fc01702b8038f93d84de797c78834a162"
+  },
+  {
+   "path": "js/image.js",
+   "sha256": "c3651e7049f64699298aefc2084d98cbee12de23df5e21277d339f43e04e1552"
+  },
+  {
+   "path": "js/logic.js",
+   "sha256": "ab99f1b2ba0dff63c23f7e0a53e656478f416489bb2a7d0f156fffd4b0ffb92a"
+  },
+  {
+   "path": "js/main.js",
+   "sha256": "bfac90e9d58321bd62b55599209c8e97d216f1bfc4686adf62457796752668f9"
+  },
+  {
+   "path": "js/native.js",
+   "sha256": "f97214e61a13842bd008f023843c381383277d197ad835535b1e19ffac056ed8"
+  },
+  {
+   "path": "js/piecegrid.js",
+   "sha256": "8c04a3295341d9c23b47f8aa7834c40e3dd0b9f694ac73c3953c3dfa67a97d2e"
+  },
+  {
+   "path": "js/room.js",
+   "sha256": "27a0bb8f20d2d4e100b803f14d6d9ddade1f56a1cfc3898bd23d1cb4255c5b9a"
+  },
+  {
+   "path": "js/sound.js",
+   "sha256": "d1305747bf69411d20744ea438235a3b3ca1bf872974ba1c5c9a6906ac186191"
+  },
+  {
+   "path": "js/sync.js",
+   "sha256": "4ecbde5829a1e10f3ce332789fe5abcc5b84b790cda5728d328ac73b523adcaa"
+  },
+  {
+   "path": "js/textures.js",
+   "sha256": "8fb51d3b79081008af0a46c9c7203ac1fcfa0a4ed57b2b878b63b3265fc2a570"
+  },
+  {
+   "path": "manifest.webmanifest",
+   "sha256": "71e6a261f3b177bd919a790095bee6d8ae941ee5290464905c5be5a7f261f342"
+  },
+  {
+   "path": "og.png",
+   "sha256": "e001b196bf546fe03e581a9932e999920e257d2fa094bc393809209dc6fb00e6"
+  },
+  {
+   "path": "privacy.html",
+   "sha256": "4b7fbcbc88a6c1d3493bcd79743fef007c6e63eab709b7887a323288f3081163"
+  },
+  {
+   "path": "styles.css",
+   "sha256": "95d93ece42af268af05ae8d5298ec77310651f2e4db7667f7bbc33b7e93c5ec8"
+  },
+  {
+   "path": "welcome-pieces.jpg",
+   "sha256": "0c04f6318f6c82002844b3d134a30851e648499e4ac5099505c792d842179a0d"
+  }
+ ]
+}

@@ -116,6 +116,9 @@ export function sessionCookie(token, url) {
 function sessionToken(request) {
   const auth = request.headers.get('authorization') || '';
   if (auth.startsWith('Bearer ')) return auth.slice(7).trim() || null;
+  // The iPhone app's live-room WebSocket: "Sec-WebSocket-Protocol: poozles, <token>"
+  const [proto, token] = (request.headers.get('sec-websocket-protocol') || '').split(',').map((p) => p.trim());
+  if (proto === 'poozles' && token) return token;
   const m = (request.headers.get('cookie') || '').match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
   return m ? m[1] : null;
 }

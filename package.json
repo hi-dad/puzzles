@@ -7,7 +7,8 @@
     "dev:static": "python3 -m http.server 5173 --directory public",
     "deploy": "wrangler deploy",
     "db:local": "wrangler d1 execute puzzle-table --local --file worker/schema.sql",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "manifest": "node tools/app-manifest.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.149.0"
