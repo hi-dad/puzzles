@@ -3,8 +3,8 @@ import { cloud } from './sync.js';
 import { preparePhoto, loadBlobImage, puzzleImage } from './image.js';
 import { Cut, chooseGrid } from './geometry.js';
 import { shuffled } from './logic.js';
-import { Game, BACKGROUNDS, DEFAULT_BG } from './game.js';
-import { swatchURL, surface } from './textures.js';
+import { Game, BACKGROUNDS, MATS, TRAYS, DEFAULT_BG } from './game.js';
+import { swatchURL, matSwatchURL } from './textures.js';
 import { PieceGrid } from './piecegrid.js';
 import { sfx } from './sound.js';
 
@@ -59,23 +59,17 @@ async function route() {
 
 // ---------------- library ----------------
 
+// Which puzzles the library shows: 'progress', 'done' or 'all'.
+let libFilter = 'progress';
+
 async function renderLibrary() {
   const list = (await db.list()).sort((a, b) => b.updatedAt - a.updatedAt);
-  const hour = new Date().getHours();
-  $('#greeting').textContent = hour < 5 ? 'Up late?' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-
   const done = list.filter((r) => r.done);
-  const placed = list.reduce((n, r) => n + (r.placed || 0), 0);
-  const stats = $('#stats');
-  stats.replaceChildren();
-  if (list.length) {
-    const stat = (n, label) => el('div', { className: 'stat' }, el('strong', { textContent: n.toLocaleString() }), el('span', { textContent: label }));
-    stats.append(stat(list.length - done.length, 'in progress'), stat(done.length, 'finished'), stat(placed, 'pieces placed'));
-  }
-  $('#hero-cta').hidden = list.length > 0;
+  const going = list.filter((r) => !r.done);
+  $('#empty').hidden = list.length > 0;
 
   // Most recent unfinished puzzle gets a big "continue" card.
-  const current = list.find((r) => !r.done);
+  const current = going[0];
   const cont = $('#continue');
   cont.hidden = !current;
   if (current) {
@@ -83,25 +77,34 @@ async function renderLibrary() {
     cont.replaceChildren(el('a', { className: 'continue-card', href: `#/play/${encodeURIComponent(current.id)}` },
       el('div', { className: 'continue-img' }, el('img', { src: current.thumb, alt: '' })),
       el('div', { className: 'continue-body' },
-        el('div', { className: 'eyebrow dark', textContent: 'Pick up where you left off' }),
+        el('div', { className: 'eyebrow', textContent: 'Pick up where you left off' }),
         el('div', { className: 'continue-title', textContent: current.name }),
-        el('div', { className: 'card-meta', textContent: `${current.placed} of ${current.total} pieces · ${fmtTime(current.elapsed)}` }),
-        el('div', { className: 'progress big' }, el('i', { style: `width:${pct}%` })),
-        el('span', { className: 'primary continue-btn', textContent: pct ? `Continue · ${pct}%` : 'Start puzzling' }))));
+        el('div', { className: 'card-meta', textContent: `${current.placed} / ${current.total} pieces · ${fmtTime(current.elapsed)}` }),
+        el('div', { className: 'progress big' }, el('i', { style: `width:${pct}%` }))),
+      el('span', { className: 'primary continue-btn', textContent: current.elapsed > 0 ? 'Resume' : 'Start' })));
   }
 
+  if (libFilter === 'progress' && !going.length) libFilter = 'all';
+  if (libFilter === 'done' && !done.length) libFilter = 'all';
+  $('#library-head').hidden = list.length === 0;
+  const filters = [['progress', 'In progress', going.length], ['done', 'Finished', done.length], ['all', 'All', list.length]];
+  $('#lib-filters').replaceChildren(...filters.filter(([, , n]) => n).map(([key, label, n]) => {
+    const b = el('button', { className: 'filter' + (key === libFilter ? ' on' : ''), type: 'button' },
+      label, el('span', { textContent: n }));
+    b.addEventListener('click', () => {
+      libFilter = key;
+      renderLibrary();
+    });
+    return b;
+  }));
+
+  const shown = libFilter === 'progress' ? going : libFilter === 'done' ? done : list;
   const grid = $('#library-grid');
-  $('#library-heading').hidden = list.length === 0;
-  grid.hidden = list.length === 0; // the hero button covers the empty state
-  grid.replaceChildren(
-    el('a', { className: 'card new-card', href: '#/new' },
-      el('span', { className: 'new-icon', innerHTML: ICONS.piece }),
-      el('strong', { textContent: 'New puzzle' }),
-      el('span', { className: 'card-meta', textContent: 'From any photo' })),
-  );
-  for (const rec of list) {
+  grid.hidden = list.length === 0; // the empty state covers it
+  grid.replaceChildren();
+  for (const rec of shown) {
     const pct = Math.floor((rec.placed / rec.total) * 100);
-    const meta = rec.done ? `Finished in ${fmtTime(rec.elapsed)}` : `${pct}% done`;
+    const meta = rec.done ? `Finished in ${fmtTime(rec.elapsed)}` : `${rec.placed} / ${rec.total} pieces`;
     const del = el('button', { className: 'card-del', title: 'Delete puzzle', ariaLabel: 'Delete puzzle', innerHTML: ICONS.trash });
     del.addEventListener('click', async (e) => {
       e.preventDefault();
@@ -113,12 +116,11 @@ async function renderLibrary() {
     const card = el('a', { className: 'card', href: `#/play/${encodeURIComponent(rec.id)}` },
       el('div', { className: 'card-img' },
         el('img', { src: rec.thumb, alt: '' }),
-        el('span', { className: 'badge', innerHTML: `${ICONS.pieceSmall}${rec.total}` }),
-        rec.done ? el('span', { className: 'badge done', textContent: '✓ Done' }) : null),
+        rec.done ? el('span', { className: 'badge done', textContent: '✓ Finished' }) : null),
+      rec.done ? null : el('div', { className: 'progress' }, el('i', { style: `width:${pct}%` })),
       el('div', { className: 'card-body' },
         el('div', { className: 'card-title', textContent: rec.name }),
-        el('div', { className: 'card-meta', textContent: meta }),
-        rec.done ? null : el('div', { className: 'progress' }, el('i', { style: `width:${pct}%` }))),
+        el('div', { className: 'card-meta', textContent: meta })),
       del);
     grid.append(card);
   }
@@ -369,7 +371,9 @@ function onTick() {
 
 function updateHud() {
   if (!rec || !game) return;
-  $('#play-progress').textContent = `${game.placed()} / ${rec.total}`;
+  const placed = game.placed();
+  $('#play-progress').textContent = `${placed} / ${rec.total}`;
+  $('#play-line').style.width = `${(placed / rec.total) * 100}%`;
   $('#play-time').textContent = fmtTime(rec.elapsed);
 }
 
@@ -418,7 +422,7 @@ async function syncNow() {
 }
 
 const CLOUD_TEXT = {
-  synced: '☁︎ Saved',
+  synced: '☁︎ Synced',
   saving: 'Saving…',
   offline: 'Offline · saved on this device',
   'signed-out': 'Sign in to sync',
@@ -429,7 +433,8 @@ function showCloud(s) {
   const mini = $('#play-cloud');
   const text = CLOUD_TEXT[s];
   pill.hidden = !text;
-  pill.textContent = s === 'synced' && cloud.email ? `☁︎ Synced · ${cloud.email}` : text || '';
+  pill.textContent = text || '';
+  pill.title = cloud.email || '';
   pill.dataset.state = s;
   mini.textContent = text ? ` · ${s === 'synced' ? '☁︎' : text}` : '';
   mini.title = text || '';
@@ -501,7 +506,10 @@ function syncToggles() {
   $('#btn-edges').classList.toggle('on', game.edgesOnly);
   $('#btn-sound').classList.toggle('on', sfx.enabled);
   $('#btn-sound').querySelector('span').textContent = sfx.enabled ? 'Sound on' : 'Sound off';
-  for (const b of document.querySelectorAll('.swatch')) b.classList.toggle('on', b.dataset.bg === game.bg);
+  for (const b of document.querySelectorAll('.swatch[data-bg]')) b.classList.toggle('on', b.dataset.bg === game.bg);
+  for (const b of document.querySelectorAll('.swatch[data-mat]')) b.classList.toggle('on', b.dataset.mat === game.mat);
+  for (const b of document.querySelectorAll('.swatch[data-tray]')) b.classList.toggle('on', b.dataset.tray === game.trayColor);
+  $('#btn-tray-rows').classList.toggle('on', game.trayRows === 2);
   $('#tray-size').value = game.trayScale;
   const colour = game.traySort === 'colour';
   $('#tray-sort').textContent = colour ? '● Sorted by colour' : 'Sort by colour';
@@ -554,8 +562,6 @@ function showComplete() {
 // ---------------- wiring ----------------
 
 const ICONS = {
-  piece: '<svg viewBox="15 15 70 70" width="44" height="44"><path fill="currentColor" d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>',
-  pieceSmall: '<svg viewBox="15 15 70 70" width="12" height="12"><path fill="currentColor" d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>',
   trash: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
 };
 
@@ -611,7 +617,8 @@ function wire() {
   $('#btn-zoom-out').addEventListener('click', () => game.zoomBy(1 / 1.4));
   $('#btn-menu').addEventListener('click', (e) => {
     e.stopPropagation();
-    for (const b of document.querySelectorAll('.swatch:not([style])')) b.style.backgroundImage = `url(${swatchURL(b.dataset.bg)})`;
+    for (const b of document.querySelectorAll('.swatch[data-bg]:not([style])')) b.style.backgroundImage = `url(${swatchURL(b.dataset.bg)})`;
+    for (const b of document.querySelectorAll('.swatch[data-mat]:not([style])')) b.style.backgroundImage = `url(${matSwatchURL(b.dataset.mat)})`;
     $('#menu').hidden = !$('#menu').hidden;
   });
   document.addEventListener('pointerdown', (e) => {
@@ -627,6 +634,28 @@ function wire() {
     });
     swatches.append(b);
   }
+  for (const [key, { label, color }] of Object.entries(TRAYS)) {
+    const b = el('button', { className: 'swatch', title: label, ariaLabel: label, style: `background:${color}` });
+    b.dataset.tray = key;
+    b.addEventListener('click', () => {
+      game.setTrayColor(key);
+      syncToggles();
+    });
+    $('#trays').append(b);
+  }
+  for (const [key, { label }] of Object.entries(MATS)) {
+    const b = el('button', { className: 'swatch', title: label, ariaLabel: label });
+    b.dataset.mat = key;
+    b.addEventListener('click', () => {
+      game.setMat(key);
+      syncToggles();
+    });
+    $('#mats').append(b);
+  }
+  $('#btn-tray-rows').addEventListener('click', () => {
+    game.setTrayRows(game.trayRows === 2 ? 1 : 2);
+    syncToggles();
+  });
   $('#tray-size').addEventListener('input', (e) => game.setTrayScale(parseFloat(e.target.value)));
   $('#btn-sound').addEventListener('click', () => {
     sfx.enabled = !sfx.enabled;
@@ -656,6 +685,7 @@ function wire() {
     else if (cloud.email) openAccount();
   });
   $('#hero-signin').addEventListener('click', openSignIn);
+  $('#btn-account').addEventListener('click', () => (cloud.email ? openAccount() : openSignIn()));
   $('#signin-cancel').addEventListener('click', () => ($('#signin').hidden = true));
   $('#signin-dev').addEventListener('click', () => finishSignIn('dev'));
   document.addEventListener('AppleIDSignInOnSuccess', (e) => finishSignIn('apple', e.detail.authorization.id_token));
@@ -672,11 +702,6 @@ function wire() {
   document.addEventListener('gesturestart', (e) => e.preventDefault());
   document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
 }
-
-// The front screens sit on the same wooden table as the game.
-try {
-  document.documentElement.style.setProperty('--wood', `url(${surface('walnut', 512).toDataURL('image/jpeg', 0.85)})`);
-} catch {}
 
 // Handy for debugging in the browser console.
 window.puzzle = () => game;

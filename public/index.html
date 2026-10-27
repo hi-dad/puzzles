@@ -5,39 +5,46 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Poozles">
-  <meta name="theme-color" content="#f6f1e7">
+  <meta name="theme-color" content="#fff9f3">
   <title>Poozles</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,500..900,0..100&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <!-- Library -->
   <section id="screen-library" class="screen scroll wood" hidden>
-    <header class="hero">
-      <div class="hero-pieces" aria-hidden="true">
-        <svg class="fp fp1" viewBox="15 15 70 70"><path d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>
-        <svg class="fp fp2" viewBox="15 15 70 70"><path d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>
-        <svg class="fp fp3" viewBox="15 15 70 70"><path d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>
-        <svg class="fp fp4" viewBox="15 15 70 70"><path d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>
-        <svg class="fp fp5" viewBox="15 15 70 70"><path d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z"/></svg>
-      </div>
+    <header class="home-bar">
+      <a href="#/" class="logo-link"><span class="logo" role="img" aria-label="Poozles"><span aria-hidden="true">P</span><svg class="logo-oo" viewBox="28 15 84 70" aria-hidden="true"><path fill="#F6A58C" fill-rule="evenodd" transform="translate(40 0)" d="M30 30 H44 C40 16 60 16 56 30 H70 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z M50 41 A9 9 0 1 0 50.01 41 Z"/><path fill="#EF5A4C" fill-rule="evenodd" d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 Z M50 41 A9 9 0 1 0 50.01 41 Z"/></svg><span aria-hidden="true">zles</span></span></a>
+      <span class="spacer"></span>
       <button id="cloud-status" class="cloud-pill" type="button" hidden></button>
-      <p id="greeting" class="eyebrow"></p>
-      <h1>Poozles</h1>
-      <p class="hero-sub">Turn any photo into a jigsaw.</p>
-      <div id="stats" class="stats"></div>
-      <a id="hero-cta" class="primary hero-cta" href="#/new" hidden>Make your first puzzle</a>
-      <button id="hero-signin" class="link-btn hero-signin" type="button" hidden>Played before? Sign in to bring your puzzles back</button>
+      <button id="btn-account" class="avatar" type="button" aria-label="Account">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>
+      </button>
     </header>
+    <hr class="home-rule">
+    <div id="empty" class="empty" hidden>
+      <p class="empty-title">Turn any photo into a jigsaw.</p>
+      <a id="hero-cta" class="primary" href="#/new">Make your first puzzle</a>
+      <button id="hero-signin" class="link-btn" type="button" hidden>Played before? Sign in to bring your puzzles back</button>
+    </div>
     <section id="continue" class="continue" hidden></section>
-    <h2 id="library-heading" class="section-title" hidden>Your puzzles</h2>
+    <div id="library-head" class="lib-head" hidden>
+      <div class="lib-title-row">
+        <h2>Your puzzles</h2>
+        <a class="new-btn" href="#/new">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          <span class="new-long">New from a photo</span><span class="new-short">New puzzle</span>
+        </a>
+      </div>
+      <div id="lib-filters" class="lib-filters"></div>
+    </div>
     <div id="library-grid" class="lib-grid"></div>
   </section>
 
@@ -96,9 +103,11 @@
       <a class="icon-btn" href="#/" aria-label="Back to library">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
       </a>
+      <a href="#/" class="play-logo" aria-label="Poozles home"><span class="logo" role="img" aria-label="Poozles"><span aria-hidden="true">P</span><svg class="logo-oo" viewBox="28 15 84 70" aria-hidden="true"><path fill="#F6A58C" fill-rule="evenodd" transform="translate(40 0)" d="M30 30 H44 C40 16 60 16 56 30 H70 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z M50 41 A9 9 0 1 0 50.01 41 Z"/><path fill="#EF5A4C" fill-rule="evenodd" d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 Z M50 41 A9 9 0 1 0 50.01 41 Z"/></svg><span aria-hidden="true">zles</span></span></a>
+      <span class="play-divider" aria-hidden="true"></span>
       <div class="play-info">
         <div id="play-title" class="play-title"></div>
-        <div class="play-sub"><span id="play-progress"></span> · <span id="play-time"></span><span id="play-cloud" class="cloud-mini"></span></div>
+        <div class="play-sub"><span id="play-progress"></span> pieces · <span id="play-time"></span><span id="play-cloud" class="cloud-mini"></span></div>
       </div>
       <button id="btn-ghost" class="icon-btn toggle" type="button" title="Show picture on the board" aria-label="Show picture on the board">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 8"/></svg>
@@ -115,18 +124,27 @@
       <div id="menu" class="menu" hidden>
         <div class="label">Table</div>
         <div id="swatches" class="swatches"></div>
+        <div class="label">Tray</div>
+        <div id="trays" class="swatches"></div>
+        <div class="label">Mat</div>
+        <div id="mats" class="swatches"></div>
         <label class="label" for="tray-size">Tray piece size</label>
         <div class="slider-row">
           <span class="slider-sm">A</span>
           <input type="range" id="tray-size" min="0.7" max="1.8" step="0.05">
           <span class="slider-lg">A</span>
         </div>
+        <button id="btn-tray-rows" class="menu-item" type="button">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="6" rx="1.5"/><rect x="3" y="13" width="18" height="6" rx="1.5"/></svg>
+          <span>Two-row tray</span>
+        </button>
         <button id="btn-sound" class="menu-item" type="button">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7"/></svg>
           <span>Sound on</span>
         </button>
       </div>
     </header>
+    <div class="play-line" aria-hidden="true"><i id="play-line"></i></div>
     <div class="play-area">
       <canvas id="board"></canvas>
       <div class="zoom-ctl">

@@ -4,10 +4,11 @@
 import { Cut } from './geometry.js';
 import { settle, placedCount } from './logic.js';
 import { sfx } from './sound.js';
-import { SURFACES, surface, trayFelt, matFelt } from './textures.js';
+import { SURFACES, MATS, TRAYS, surface, matFelt } from './textures.js';
 
 export const BACKGROUNDS = SURFACES;
-export const DEFAULT_BG = 'walnut';
+export { MATS, TRAYS };
+export const DEFAULT_BG = 'honey';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -22,6 +23,9 @@ function turn(x, y, r) {
 }
 
 export const TRAY_SIZE = { min: 0.7, max: 1.8 };
+// Dragging a piece low on the screen to keep it out of the way is common on phones, so the
+// "Drop to put back in the tray" hint only appears after hovering over the tray a moment.
+const TRAY_HINT_DELAY = 2000;
 function savedTraySort() {
   try {
     return localStorage.getItem('pt-traysort') === 'colour' ? 'colour' : 'mixed';
@@ -35,6 +39,28 @@ function savedTrayScale() {
     if (v >= TRAY_SIZE.min && v <= TRAY_SIZE.max) return v;
   } catch {}
   return 1;
+}
+
+function savedTrayRows() {
+  try {
+    return localStorage.getItem('pt-trayrows') === '2' ? 2 : 1;
+  } catch {
+    return 1;
+  }
+}
+function savedTrayColor() {
+  try {
+    const v = localStorage.getItem('pt-traycolor');
+    if (TRAYS[v]) return v;
+  } catch {}
+  return 'ivory';
+}
+function savedMat() {
+  try {
+    const v = localStorage.getItem('pt-mat');
+    if (MATS[v]) return v;
+  } catch {}
+  return 'dark';
 }
 
 export class Game {
@@ -71,6 +97,9 @@ export class Game {
     this.selected = new Set(); // loose groups picked for moving together
     this.selectMode = false;
     this.trayScale = savedTrayScale();
+    this.trayRows = savedTrayRows();
+    this.mat = savedMat();
+    this.trayColor = savedTrayColor();
     this.cam = { s: 1, x: 0, y: 0 };
     this.trayScroll = 0;
     this.trayVel = 0;
@@ -103,7 +132,7 @@ export class Game {
     this.safeBottom = safeAreaBottom();
     const compact = this.w < 600 || this.h < 600;
     this.slot = Math.round((compact ? 76 : 92) * this.trayScale);
-    this.trayH = this.slot + 16 + this.safeBottom;
+    this.trayH = this.slot * this.trayRows + 16 + this.safeBottom;
     this.canvas.parentElement.style.setProperty('--tray-h', `${this.trayH}px`);
     if (prevW) {
       // keep the board centred through rotations/resizes
@@ -119,9 +148,39 @@ export class Game {
     try {
       localStorage.setItem('pt-tray', String(this.trayScale));
     } catch {}
+    this.relayoutTray();
+  }
+
+  setTrayRows(n) {
+    this.trayRows = n === 2 ? 2 : 1;
+    try {
+      localStorage.setItem('pt-trayrows', String(this.trayRows));
+    } catch {}
+    this.relayoutTray();
+  }
+
+  // The tray changed height: keep the board centred in the space above it.
+  relayoutTray() {
     const before = this.boardH;
     this.resize();
     this.cam.y += (this.boardH - before) / 2;
+  }
+
+  setTrayColor(key) {
+    this.trayColor = TRAYS[key] ? key : 'ivory';
+    try {
+      localStorage.setItem('pt-traycolor', this.trayColor);
+    } catch {}
+    this.redraw();
+  }
+
+  setMat(key) {
+    this.mat = MATS[key] ? key : 'dark';
+    try {
+      localStorage.setItem('pt-mat', this.mat);
+    } catch {}
+    this.patterns = null;
+    this.redraw();
   }
 
   get boardH() {
@@ -184,19 +243,24 @@ export class Game {
     this.redraw();
   }
 
+  // Tray pieces fill each column top to bottom, then move right, so with two rows the
+  // order still reads left to right as you scroll.
   clampTray() {
-    const max = Math.max(0, this.trayList().length * this.slot + 24 - this.w);
+    const cols = Math.ceil(this.trayList().length / this.trayRows);
+    const max = Math.max(0, cols * this.slot + 24 - this.w);
     this.trayScroll = clamp(this.trayScroll, 0, max);
   }
 
-  trayCenterY() {
-    return this.h - this.safeBottom - (this.trayH - this.safeBottom) / 2 + 4;
+  trayRowY(row) {
+    return this.h - this.trayH + 12 + this.slot * (row + 0.5);
   }
 
-  trayHit(x) {
+  trayHit(x, y) {
     const list = this.trayList();
-    const k = Math.floor((x + this.trayScroll - 12) / this.slot);
-    return k >= 0 && k < list.length ? list[k] : null;
+    const col = Math.floor((x + this.trayScroll - 12) / this.slot);
+    const row = clamp(Math.floor((y - (this.h - this.trayH) - 12) / this.slot), 0, this.trayRows - 1);
+    const k = col * this.trayRows + row;
+    return col >= 0 && k < list.length ? list[k] : null;
   }
 
   inTray(y) {
@@ -619,7 +683,7 @@ export class Game {
     if (this.inTray(p.y)) {
       this.mode = 'tray';
       this.m = {
-        id: e.pointerId, idx: this.trayHit(p.x), x0: p.x, y0: p.y, scroll0: this.trayScroll,
+        id: e.pointerId, idx: this.trayHit(p.x, p.y), x0: p.x, y0: p.y, scroll0: this.trayScroll,
         scrolling: false, lastX: p.x, lastT: e.timeStamp, vel: 0, mouse: e.pointerType === 'mouse',
       };
       return;
@@ -681,7 +745,12 @@ export class Game {
         it.g.x = w.x - it.gx;
         it.g.y = w.y - it.gy;
       }
-      this.overTray = this.inTray(p.y) && m.list.every((it) => it.g.members.length === 1);
+      const over = this.inTray(p.y) && m.list.every((it) => it.g.members.length === 1);
+      if (over && !this.overTray) {
+        this.overTraySince = performance.now();
+        setTimeout(() => this.redraw(), TRAY_HINT_DELAY + 20);
+      }
+      this.overTray = over;
       this.redraw();
     } else if (this.mode === 'lasso') {
       m.x1 = p.x;
@@ -871,7 +940,7 @@ export class Game {
     const vg = ctx.createRadialGradient(this.w / 2, this.boardH * 0.45, Math.min(this.w, this.h) * 0.2,
       this.w / 2, this.boardH * 0.45, Math.hypot(this.w, this.h) * 0.62);
     vg.addColorStop(0, 'rgba(255,240,215,0.06)');
-    vg.addColorStop(1, 'rgba(0,0,0,0.38)');
+    vg.addColorStop(1, `rgba(0,0,0,${bg.light ? 0.16 : 0.38})`); // lighter on light tables
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, this.w, this.h);
 
@@ -881,7 +950,8 @@ export class Game {
     ctx.shadowColor = 'rgba(0,0,0,0.5)';
     ctx.shadowBlur = 22 * dpr;
     ctx.shadowOffsetY = 6 * dpr;
-    ctx.fillStyle = '#2a231d';
+    const mat = MATS[this.mat];
+    ctx.fillStyle = mat.frame;
     ctx.fillRect(-pad, -pad, W + 2 * pad, H + 2 * pad);
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
@@ -1018,9 +1088,7 @@ export class Game {
     if (!this.patterns) {
       this.patterns = {
         table: this.ctx.createPattern(surface(this.bg), 'repeat'),
-        tray: this.ctx.createPattern(trayFelt(), 'repeat'),
-        mat: this.ctx.createPattern(matFelt(), 'repeat'),
-        lip: this.ctx.createPattern(surface('walnut'), 'repeat'),
+        mat: this.ctx.createPattern(matFelt(this.mat), 'repeat'),
       };
     }
     return this.patterns;
@@ -1029,60 +1097,41 @@ export class Game {
   drawTray() {
     const { ctx, dpr, cut } = this;
     const top = this.h - this.trayH;
-    const pat = this.getPatterns();
+    const tray = TRAYS[this.trayColor];
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // felt lining
-    pat.tray.setTransform(new DOMMatrix([0.8, 0, 0, 0.8, 0, 0]));
-    ctx.fillStyle = pat.tray;
+    ctx.fillStyle = tray.color;
     ctx.fillRect(0, top, this.w, this.trayH);
-    if (this.overTray) {
-      ctx.fillStyle = 'rgba(255,230,190,0.08)';
+    const hint = this.overTray && performance.now() - this.overTraySince >= TRAY_HINT_DELAY;
+    if (hint) {
+      ctx.fillStyle = 'rgba(239,90,76,0.08)';
       ctx.fillRect(0, top, this.w, this.trayH);
     }
-    // shadow cast by the lip onto the felt
-    const lipH = 9;
-    const sg = ctx.createLinearGradient(0, top + lipH, 0, top + lipH + 18);
-    sg.addColorStop(0, 'rgba(0,0,0,0.55)');
-    sg.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = sg;
-    ctx.fillRect(0, top + lipH, this.w, 18);
-    // wooden lip with a rounded highlight
-    pat.lip.setTransform(new DOMMatrix([0.35, 0, 0, 0.35, 0, top]));
-    ctx.fillStyle = pat.lip;
-    ctx.fillRect(0, top, this.w, lipH);
-    const lg = ctx.createLinearGradient(0, top, 0, top + lipH);
-    lg.addColorStop(0, 'rgba(255,225,180,0.35)');
-    lg.addColorStop(0.35, 'rgba(255,225,180,0.05)');
-    lg.addColorStop(1, 'rgba(0,0,0,0.45)');
-    ctx.fillStyle = lg;
-    ctx.fillRect(0, top, this.w, lipH);
-    // the lip also shades the table just above it
-    const ug = ctx.createLinearGradient(0, top - 14, 0, top);
-    ug.addColorStop(0, 'rgba(0,0,0,0)');
-    ug.addColorStop(1, 'rgba(0,0,0,0.35)');
-    ctx.fillStyle = ug;
-    ctx.fillRect(0, top - 14, this.w, 14);
+    // peach line separating the board from the tray
+    ctx.fillStyle = '#F6C7B3';
+    ctx.fillRect(0, top, this.w, 6);
 
     const list = this.trayList();
-    const cy = this.trayCenterY();
+    const cy = (this.trayRowY(0) + this.trayRowY(this.trayRows - 1)) / 2;
     if (!list.length) {
-      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.fillStyle = tray.ink;
       ctx.font = '500 14px -apple-system, system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const msg = this.tray.length ? 'No edge pieces left in the tray' : 'All pieces are on the table';
-      ctx.fillText(this.overTray ? 'Drop to put back in the tray' : msg, this.w / 2, cy);
+      ctx.fillText(hint ? 'Drop to put back in the tray' : msg, this.w / 2, cy);
       return;
     }
     const k = (this.slot - 8) / (Math.max(cut.pw, cut.ph) * 1.62);
-    const first = Math.max(0, Math.floor((this.trayScroll - 12) / this.slot));
-    const last = Math.min(list.length - 1, Math.ceil((this.trayScroll + this.w) / this.slot));
+    const rows = this.trayRows;
+    const first = Math.max(0, Math.floor((this.trayScroll - 12) / this.slot)) * rows;
+    const last = Math.min(list.length - 1, (Math.ceil((this.trayScroll + this.w) / this.slot) + 1) * rows - 1);
     ctx.shadowColor = 'rgba(0,0,0,0.4)';
     ctx.shadowBlur = 4 * dpr;
     ctx.shadowOffsetY = 2 * dpr;
     for (let j = first; j <= last; j++) {
       const pc = this.pieces[list[j]];
-      const cx = 12 + this.slot * (j + 0.5) - this.trayScroll;
+      const cx = 12 + this.slot * (Math.floor(j / rows) + 0.5) - this.trayScroll;
+      const cy = this.trayRowY(j % rows);
       const w = pc.canvas.width * k, h = pc.canvas.height * k;
       const r = this.rotate ? this.rot[pc.i] : 0;
       if (r) {
@@ -1096,8 +1145,8 @@ export class Game {
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
-    if (this.overTray) {
-      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    if (hint) {
+      ctx.fillStyle = tray.ink;
       ctx.font = '600 13px -apple-system, system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('Drop to put back in the tray', this.w / 2, top + 16);

@@ -43,7 +43,7 @@ browser ──/api/*──► Worker (worker/index.js) ──► D1  (one row pe
   provider's signed ID token and keeps a session (a random token, stored only as a hash in
   D1). The verified email is the owner key for everything stored. Signing in is optional:
   without it, puzzles stay on the device.
-- **Sync** (`public/js/sync.js`): saves upload ~2.5 s after the last move; the library and
+- **Sync** (`public/js/sync.js`): saves upload at most every 30 s while playing, and right away when you leave the puzzle or hide the app; the library and
   open puzzle pull newer copies when the app is opened, focused, or every 2 minutes.
 - **Conflicts** (same puzzle advanced on two devices): the most recent save wins; if the
   puzzle on screen is older than the cloud copy, the app asks "Load latest / Keep this one".

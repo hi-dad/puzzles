@@ -50,7 +50,8 @@ function canvasOf(size, paint) {
 const mix = (a, b, t) => a + (b - a) * t;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
-function wood(size, light, dark, seed) {
+// seamless: one continuous board (no plank grooves, joints or per-plank tint).
+function wood(size, light, dark, seed, { seamless = false } = {}) {
   const planks = 4;
   const ph = size / planks;
   const rnd = mulberry32(seed);
@@ -64,6 +65,7 @@ function wood(size, light, dark, seed) {
   const warp = fbm(2, seed + 1, 4, 16); // long, gentle waves along the board
   const fibre = periodicNoise(8, seed + 2, 700); // fine pores and streaks
   const figure = fbm(3, seed + 3, 3, 10); // broad light/dark figure
+  const ringK = (2 * Math.PI * Math.round((0.21 * size) / (2 * Math.PI))) / size;
   return canvasOf(size, (d, s) => {
     for (let y = 0; y < s; y++) {
       const p = Math.floor(y / ph), ly = y - p * ph, m = meta[p];
@@ -71,14 +73,20 @@ function wood(size, light, dark, seed) {
         const along = (x - m.joint + s) % s;
         const phase = along < m.len ? m.phase : m.phase2;
         const w = warp(x, y, s);
-        const rings = Math.sin(ly * 0.21 + w * 16 + phase);
+        // A seamless board runs one grain pattern down the whole tile, at a frequency
+        // that repeats exactly at the tile edge so no seam shows where it wraps.
+        const rings = seamless
+          ? Math.sin(y * ringK + w * 16 + meta[0].phase)
+          : Math.sin(ly * 0.21 + w * 16 + phase);
         const line = Math.pow(rings * 0.5 + 0.5, 6);
         const f = fibre((x / s) * 8, (y / s) * 700);
         const fig = figure(x, y, s);
-        let t = 0.6 - 0.3 * line + 0.24 * (f - 0.5) + 0.3 * (fig - 0.5) + m.tint;
-        if (ly < 2) t -= 0.5; // groove between planks
+        let t = 0.6 - 0.3 * line + 0.24 * (f - 0.5) + 0.3 * (fig - 0.5) + (seamless ? 0 : m.tint);
+        if (seamless) {
+          // no grooves or joints
+        } else if (ly < 2) t -= 0.5; // groove between planks
         else if (ly < 4) t += 0.06;
-        const dj = Math.min(along, s - along, Math.abs(along - m.len));
+        const dj = seamless ? Infinity : Math.min(along, s - along, Math.abs(along - m.len));
         if (dj < 1.5) t -= 0.45; // butt joint
         else if (dj < 3) t -= 0.12;
         t = clamp01(t);
@@ -132,6 +140,7 @@ function linen(size, base, seed) {
 }
 
 export const SURFACES = {
+  honey: { label: 'Honey oak', light: true, make: (s) => wood(s, [214, 158, 100], [146, 94, 52], 41, { seamless: true }) },
   walnut: { label: 'Walnut', light: false, make: (s) => wood(s, [138, 94, 62], [62, 38, 24], 11) },
   oak: { label: 'Oak', light: true, make: (s) => wood(s, [214, 172, 120], [146, 100, 60], 23) },
   felt: { label: 'Green felt', light: false, make: (s) => felt(s, [46, 82, 62], 5) },
@@ -152,15 +161,45 @@ export function swatchURL(key) {
   return surface(key, 96).toDataURL();
 }
 
-// Dark felt for the tray lining and the puzzle mat.
+// Dark felt behind the "All pieces" view.
 export function trayFelt() {
   const id = 'tray';
   if (!cache.has(id)) cache.set(id, felt(512, [40, 33, 28], 31, 1.2));
   return cache.get(id);
 }
 
-export function matFelt() {
-  const id = 'mat';
-  if (!cache.has(id)) cache.set(id, felt(512, [52, 46, 40], 37, 1));
+// Tray colours. `ink` is the colour of messages written on the tray.
+export const TRAYS = {
+  ivory: { label: 'Warm ivory tray', color: '#F3EBDD', ink: '#6B5E4E' },
+  mist: { label: 'Light grey tray', color: '#ECEEF1', ink: '#5B6170' },
+  peach: { label: 'Peach tray', color: '#FFF3EA', ink: '#8A4A3A' },
+  white: { label: 'White tray', color: '#FFFFFF', ink: '#6B6560' },
+  sand: { label: 'Sand tray', color: '#E9E2D6', ink: '#6B5E4E' },
+  sage: { label: 'Sage tray', color: '#CFE0D2', ink: '#3F5A45' },
+  sky: { label: 'Sky tray', color: '#C9D6E8', ink: '#3E506B' },
+  grey: { label: 'Grey tray', color: '#6E7480', ink: '#F2F2F4' },
+  dark: { label: 'Dark tray', color: '#2B2622', ink: '#E9E2D6' },
+};
+
+// Puzzle mat colours: the felt inside the frame (grain 0 = perfectly flat) and the solid
+// border around it.
+export const MATS = {
+  dark: { label: 'Dark mat', felt: [52, 46, 40], frame: '#2a231d' },
+  light: { label: 'Light mat', felt: [226, 216, 198], frame: '#bfae94' },
+  eggshell: { label: 'Eggshell mat', felt: [240, 234, 219], frame: '#cdc3ae', grain: 0.4 },
+  white: { label: 'White mat', felt: [252, 252, 250], frame: '#d6d3cc', grain: 0 },
+  grey: { label: 'Grey mat', felt: [201, 205, 211], frame: '#a9aeb6', grain: 0.6 },
+  slate: { label: 'Slate mat', felt: [78, 86, 99], frame: '#3b424d' },
+  navy: { label: 'Navy mat', felt: [40, 52, 75], frame: '#1d2738' },
+  charcoal: { label: 'Charcoal mat', felt: [46, 48, 52], frame: '#202226' },
+};
+
+export function matFelt(key = 'dark') {
+  const id = `mat:${key}`;
+  if (!cache.has(id)) cache.set(id, felt(512, MATS[key].felt, 37, MATS[key].grain ?? 1));
   return cache.get(id);
+}
+
+export function matSwatchURL(key) {
+  return matFelt(key).toDataURL();
 }

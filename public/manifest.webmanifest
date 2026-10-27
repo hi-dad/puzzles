@@ -3,8 +3,8 @@
   "short_name": "Poozles",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#f6f1e7",
-  "theme_color": "#f6f1e7",
+  "background_color": "#fff9f3",
+  "theme_color": "#fff9f3",
   "icons": [
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" },
     { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" }

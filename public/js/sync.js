@@ -8,7 +8,9 @@
 
 import { db } from './db.js';
 
-const PUSH_DELAY = 2500;
+// While playing, upload at most every 30 s (each upload is one database write); leaving
+// the puzzle, hiding the app or closing the page uploads straight away.
+const PUSH_DELAY = 30_000;
 const listeners = new Set();
 const pushTimers = new Map();
 let status = 'checking'; // checking | synced | saving | offline | signed-out | local
@@ -132,10 +134,10 @@ export const cloud = {
     return pull(id);
   },
 
-  // Upload a puzzle shortly after it changes (coalesces rapid saves).
+  // Upload a puzzle a little after it changes. Changes made while an upload is already
+  // scheduled ride along with it, so steady play still uploads every PUSH_DELAY.
   queuePush(id) {
-    if (idle()) return;
-    clearTimeout(pushTimers.get(id));
+    if (idle() || pushTimers.has(id)) return;
     pushTimers.set(id, setTimeout(() => this.pushNow(id), PUSH_DELAY));
   },
 
