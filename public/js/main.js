@@ -335,9 +335,25 @@ let dirty = false;
 let lastActive = 0;
 const IDLE_MS = 120_000;
 
+// Size of the floating buttons on the puzzle screen (Settings → Button size).
+function savedButtonSize() {
+  try {
+    const v = parseFloat(localStorage.getItem('pt-btn'));
+    if (v >= 0.85 && v <= 1.5) return v;
+  } catch {}
+  return 1;
+}
+function setButtonSize(v) {
+  screens.play.style.setProperty('--btn', String(v));
+  try {
+    localStorage.setItem('pt-btn', String(v));
+  } catch {}
+}
+
 // ---------------- playing together ----------------
 
 let room = null;
+let myPid = null; // this device's player id in the room
 let pendingJoin = null; // invite code from a /join/CODE link, used once signed in
 
 function connectRoom(id) {
@@ -345,6 +361,7 @@ function connectRoom(id) {
   room = new Room(id, {
     init(msg) {
       if (!game || rec?.id !== id) return;
+      myPid = msg.you;
       game.remote.clear();
       for (const h of msg.holds) if (h.pieces.length) game.remoteHold(h.pid, h.name, h.color, h.pieces);
       game.loadState(msg.state);
@@ -384,12 +401,19 @@ function connectRoom(id) {
 }
 
 // Faces of everyone playing right now (only shown on shared puzzles).
+// Who else is here: one face, plus "+2" for the rest (names on hover / long-press).
 function showPlayers(players) {
   const wrap = $('#play-players');
-  wrap.replaceChildren(...players.map((p) => el('span', {
-    className: 'player', title: p.name, textContent: (p.name || '?')[0].toUpperCase(), style: `background:${p.color}`,
-  })));
-  wrap.hidden = players.length === 0;
+  const others = players.filter((p) => p.pid !== myPid);
+  const [first, ...rest] = others;
+  wrap.replaceChildren(
+    ...(first ? [el('span', {
+      className: 'player', textContent: (first.name || '?')[0].toUpperCase(), style: `background:${first.color}`,
+    })] : []),
+    ...(rest.length ? [el('span', { className: 'player more', textContent: `+${rest.length}` })] : []),
+  );
+  wrap.title = others.map((p) => p.name).join(', ');
+  wrap.hidden = others.length === 0;
 }
 
 // "Play together": share this puzzle (first time) and show its invite link and code.
@@ -530,7 +554,6 @@ async function closeGame() {
   closeMenu();
   if (pieceGrid?.isOpen) pieceGrid.close();
   $('#complete').hidden = true;
-  $('#select-hint').hidden = true;
   $('#btn-select').classList.remove('on');
   $('#toast').hidden = true;
 }
@@ -696,7 +719,11 @@ async function signOut(deleteAccount) {
 
 function syncToggles() {
   $('#btn-ghost').classList.toggle('on', game.ghost);
-  $('#btn-edges').classList.toggle('on', game.edgesOnly);
+  for (const b of document.querySelectorAll('#tray-views button')) b.classList.toggle('on', b.dataset.view === game.trayView);
+  // Select is for touch screens (taps and drags are hard to tell apart) and for rotation
+  // puzzles, where a click turns a piece. Otherwise a click on a piece selects it.
+  $('#btn-select').hidden = !(game.rotate || matchMedia('(pointer: coarse)').matches);
+  $('#btn-size').value = savedButtonSize();
   $('#btn-sound').classList.toggle('on', sfx.enabled);
   $('#btn-sound').querySelector('span').textContent = sfx.enabled ? 'Sound on' : 'Sound off';
   for (const b of document.querySelectorAll('.swatch[data-bg]')) b.classList.toggle('on', b.dataset.bg === game.bg);
@@ -704,23 +731,11 @@ function syncToggles() {
   for (const b of document.querySelectorAll('.swatch[data-tray]')) b.classList.toggle('on', b.dataset.tray === game.trayColor);
   $('#btn-tray-rows').classList.toggle('on', game.trayRows === 2);
   $('#tray-size').value = game.trayScale;
-  const colour = game.traySort === 'colour';
-  $('#tray-sort').textContent = colour ? '● Sorted by colour' : 'Sort by colour';
-  $('#tray-sort').classList.toggle('on', colour);
 }
 
 // Selecting several pieces: highlight the button and explain what to do.
-function showSelection({ mode, groups, pieces }) {
+function showSelection({ mode }) {
   $('#btn-select').classList.toggle('on', mode);
-  const hint = $('#select-hint');
-  hint.hidden = !mode && groups === 0;
-  if (hint.hidden) return;
-  const touch = matchMedia('(pointer: coarse)').matches;
-  $('#select-text').textContent = groups
-    ? `${pieces} piece${pieces === 1 ? '' : 's'} selected · drag one to move them all`
-    : touch
-      ? 'Tap pieces or drag a box around them · two fingers to move the table'
-      : 'Click pieces or drag a box around them';
 }
 
 let toastTimer = 0;
@@ -780,21 +795,16 @@ function wire() {
     game.setGhost(!game.ghost);
     syncToggles();
   });
-  $('#btn-edges').addEventListener('click', () => {
-    game.setEdgesOnly(!game.edgesOnly);
-    syncToggles();
-  });
-  $('#btn-fit').addEventListener('click', () => game.fit());
   const grid = new PieceGrid({
     panel: $('#pieces-panel'), scroll: $('#pieces-scroll'), canvas: $('#pieces-canvas'), spacer: $('#pieces-spacer'),
-    title: $('#pieces-title'), place: $('#pieces-place'), clear: $('#pieces-clear'), size: $('#pieces-size'),
-    edges: $('#pieces-edges'), sortMixed: $('#sort-mixed'), sortColour: $('#sort-colour'),
+    place: $('#pieces-place'), front: $('#pieces-front'), size: $('#pieces-size'),
+    views: { all: $('#view-all'), edges: $('#view-edges'), color: $('#view-color') },
+
   }, { onClose: () => syncToggles() });
   pieceGrid = grid;
   $('#btn-pieces').addEventListener('click', () => grid.open(game));
   $('#pieces-close').addEventListener('click', () => grid.close());
   $('#btn-select').addEventListener('click', () => game.setSelectMode(!game.selectMode));
-  $('#select-done').addEventListener('click', () => game.setSelectMode(false));
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && game && (game.selectMode || game.selected.size)) game.setSelectMode(false);
   });
@@ -802,12 +812,6 @@ function wire() {
     const n = game.tidy();
     toast(n ? `Sent ${n} loose piece${n === 1 ? '' : 's'} back to the tray` : 'No loose pieces to tidy up');
   });
-  $('#tray-sort').addEventListener('click', () => {
-    game.setTraySort(game.traySort === 'colour' ? 'mixed' : 'colour');
-    syncToggles();
-  });
-  $('#btn-zoom-in').addEventListener('click', () => game.zoomBy(1.4));
-  $('#btn-zoom-out').addEventListener('click', () => game.zoomBy(1 / 1.4));
   $('#btn-menu').addEventListener('click', (e) => {
     e.stopPropagation();
     for (const b of document.querySelectorAll('.swatch[data-bg]:not([style])')) b.style.backgroundImage = `url(${swatchURL(b.dataset.bg)})`;
@@ -849,6 +853,15 @@ function wire() {
     game.setTrayRows(game.trayRows === 2 ? 1 : 2);
     syncToggles();
   });
+  $('#btn-size').addEventListener('input', (e) => setButtonSize(parseFloat(e.target.value)));
+  setButtonSize(savedButtonSize());
+  $('#btn-fit').addEventListener('click', () => game.zoomOutAll());
+  for (const b of document.querySelectorAll('#tray-views button')) {
+    b.addEventListener('click', () => {
+      game.setTrayView(b.dataset.view);
+      syncToggles();
+    });
+  }
   $('#tray-size').addEventListener('input', (e) => game.setTrayScale(parseFloat(e.target.value)));
   $('#btn-sound').addEventListener('click', () => {
     sfx.enabled = !sfx.enabled;
@@ -949,6 +962,14 @@ function wire() {
   cloud.onConflict = onConflict;
   cloud.onLocalChange = () => !screens.library.hidden && renderLibrary();
   cloud.onStatus(showCloud);
+  // iPhone Safari treats a swipe in from the screen's edge as "go back". On the puzzle
+  // screen that's nearly always someone dragging a piece or the table, so touches that
+  // start right at the edge stay with the game (buttons there still work).
+  document.addEventListener('touchstart', (e) => {
+    if (screens.play.hidden || e.target.closest?.('a, button, input')) return;
+    const x = e.touches[0]?.clientX ?? 0;
+    if (x < 24 || x > innerWidth - 24) e.preventDefault();
+  }, { passive: false });
   // Stop iOS Safari from zooming the whole page on pinch / double-tap outside the board.
   document.addEventListener('gesturestart', (e) => e.preventDefault());
   document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });

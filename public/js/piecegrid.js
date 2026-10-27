@@ -1,8 +1,11 @@
-// Full-screen view of the tray: every remaining piece in a scrollable grid, optionally
-// sorted by colour. Tap pieces to select them, then place them on the table together.
+// Full-screen view of the tray: every remaining piece in a scrollable grid, as All, Edges
+// or Color. Press and hold a piece (or drag it with a mouse) to move it: the small tray
+// keeps whatever view and order you leave here. Tap pieces to select them, then place them
+// on the table or move them to the front of the tray.
 // Drawn on one canvas with virtual scrolling so 1000 pieces stay light on memory.
 
-import { trayFelt } from './textures.js';
+import { TRAYS } from './textures.js';
+import { sfx } from './sound.js';
 
 let savedSize = 92;
 try {
@@ -11,7 +14,7 @@ try {
 
 export class PieceGrid {
   constructor(els, { onClose } = {}) {
-    this.els = els; // { panel, scroll, canvas, spacer, title, place, clear, size, edges, sortMixed, sortColour }
+    this.els = els; // { panel, scroll, canvas, spacer, place, front, size, views: { all, edges, color } }
     this.onClose = onClose;
     this.ctx = els.canvas.getContext('2d');
     this.size = savedSize;
@@ -19,6 +22,13 @@ export class PieceGrid {
     this.raf = 0;
     els.scroll.addEventListener('scroll', () => this.redraw(), { passive: true });
     els.canvas.addEventListener('click', (e) => this.onTap(e));
+    els.canvas.addEventListener('pointerdown', (e) => this.onDown(e));
+    els.canvas.addEventListener('pointermove', (e) => this.onMove(e));
+    els.canvas.addEventListener('pointerup', (e) => this.onUp(e));
+    els.canvas.addEventListener('pointercancel', () => this.endDrag());
+    // While a piece is lifted, a finger moving must move the piece, not scroll the grid.
+    els.canvas.addEventListener('touchmove', (e) => this.drag?.active && e.preventDefault(), { passive: false });
+    els.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     els.size.addEventListener('input', () => {
       this.size = parseFloat(els.size.value);
       try {
@@ -26,16 +36,11 @@ export class PieceGrid {
       } catch {}
       this.layout();
     });
-    els.edges.addEventListener('click', () => {
-      this.game.setEdgesOnly(!this.game.edgesOnly);
-      this.refresh();
-    });
-    els.sortMixed.addEventListener('click', () => this.setSort('mixed'));
-    els.sortColour.addEventListener('click', () => this.setSort('colour'));
-    els.clear.addEventListener('click', () => {
-      this.selected = [];
-      this.updateFooter();
-      this.redraw();
+    for (const [view, btn] of Object.entries(els.views)) btn.addEventListener('click', () => this.setView(view));
+    els.front.addEventListener('click', () => {
+      const list = this.selected;
+      this.close();
+      if (list.length) this.game.moveToFront(list);
     });
     els.place.addEventListener('click', () => {
       const list = this.selected;
@@ -64,9 +69,9 @@ export class PieceGrid {
     return !this.els.panel.hidden;
   }
 
-  // Shares the tray's sort, so the grid and the tray always agree.
-  setSort(mode) {
-    this.game.setTraySort(mode);
+  // The grid and the small tray always show the same view.
+  setView(view) {
+    this.game.setTrayView(view);
     this.els.scroll.scrollTop = 0;
     this.refresh();
   }
@@ -76,11 +81,10 @@ export class PieceGrid {
     const list = g.trayList();
     this.list = list;
     this.selected = this.selected.filter((i) => list.includes(i));
-    this.els.edges.classList.toggle('on', g.edgesOnly);
-    this.els.sortMixed.classList.toggle('on', g.traySort === 'mixed');
-    this.els.sortColour.classList.toggle('on', g.traySort === 'colour');
-    const what = g.edgesOnly ? 'edge pieces' : 'pieces';
-    this.els.title.textContent = `${list.length} ${what} in the tray`;
+    for (const [view, btn] of Object.entries(this.els.views)) btn.classList.toggle('on', g.trayView === view);
+    // Same color as the tray on the table.
+    this.tray = TRAYS[g.trayColor];
+    this.els.scroll.style.background = this.tray.color;
     this.updateFooter();
     this.layout();
   }
@@ -89,7 +93,7 @@ export class PieceGrid {
     const n = this.selected.length;
     this.els.place.disabled = n === 0;
     this.els.place.textContent = n ? `Place ${n} on table` : 'Tap pieces to select';
-    this.els.clear.hidden = n === 0;
+    this.els.front.hidden = n === 0;
   }
 
   layout() {
@@ -109,7 +113,6 @@ export class PieceGrid {
     c.height = Math.round(this.h * dpr);
     c.style.height = `${this.h}px`;
     this.els.spacer.style.height = `${Math.max(0, contentH - this.h)}px`;
-    this.pattern = this.ctx.createPattern(trayFelt(), 'repeat');
     this.redraw();
   }
 
@@ -119,15 +122,16 @@ export class PieceGrid {
 
   draw() {
     this.raf = 0;
-    const { ctx, dpr, cell, pad, cols, list, game } = this;
-    if (!list || !game) return;
+    const { ctx, dpr, cell, pad, cols, game } = this;
+    if (!this.list || !game) return;
+    const list = this.order();
+    const lifted = this.drag?.active ? this.list[this.drag.from] : null;
     const top = this.els.scroll.scrollTop;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.pattern.setTransform(new DOMMatrix([0.8, 0, 0, 0.8, 0, -top % 410]));
-    ctx.fillStyle = this.pattern;
+    ctx.fillStyle = this.tray.color;
     ctx.fillRect(0, 0, this.w, this.h);
     if (!list.length) {
-      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.fillStyle = this.tray.ink;
       ctx.font = '500 15px -apple-system, system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(game.edgesOnly ? 'No edge pieces left in the tray' : 'The tray is empty', this.w / 2, 60);
@@ -140,21 +144,22 @@ export class PieceGrid {
     const sel = new Set(this.selected);
     for (let j = first; j <= last; j++) {
       const idx = list[j];
+      if (idx === lifted) continue; // drawn under the finger instead
       const cx = pad + (j % cols + 0.5) * cell;
       const cy = pad + (Math.floor(j / cols) + 0.5) * cell - top;
       if (sel.has(idx)) {
-        ctx.fillStyle = 'rgba(255,248,230,0.16)';
+        ctx.fillStyle = 'rgba(239,90,76,0.12)';
         roundRect(ctx, cx - cell / 2 + 3, cy - cell / 2 + 3, cell - 6, cell - 6, 12);
         ctx.fill();
         ctx.lineWidth = 2;
-        ctx.strokeStyle = 'rgba(255,248,230,0.85)';
+        ctx.strokeStyle = '#EF5A4C';
         ctx.stroke();
       }
       const pc = game.pieces[idx];
       const w = pc.canvas.width * k, h = pc.canvas.height * k;
       const r = game.rotate ? game.rot[idx] : 0;
       ctx.save();
-      ctx.shadowColor = 'rgba(0,0,0,0.45)';
+      ctx.shadowColor = 'rgba(0,0,0,0.3)';
       ctx.shadowBlur = 5 * dpr;
       ctx.shadowOffsetY = 2 * dpr;
       ctx.translate(cx, cy);
@@ -164,7 +169,7 @@ export class PieceGrid {
       if (sel.has(idx)) {
         const n = this.selected.indexOf(idx) + 1;
         const bx = cx + cell / 2 - 16, by = cy - cell / 2 + 16;
-        ctx.fillStyle = '#c4553d';
+        ctx.fillStyle = '#EF5A4C';
         ctx.beginPath();
         ctx.arc(bx, by, 10, 0, Math.PI * 2);
         ctx.fill();
@@ -175,15 +180,116 @@ export class PieceGrid {
         ctx.fillText(String(n), bx, by + 0.5);
       }
     }
+    if (lifted != null) {
+      const pc = game.pieces[lifted];
+      const w = pc.canvas.width * k * 1.15, h = pc.canvas.height * k * 1.15;
+      const r = game.rotate ? game.rot[lifted] : 0;
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = 14 * dpr;
+      ctx.shadowOffsetY = 8 * dpr;
+      ctx.translate(this.drag.cx, this.drag.cy);
+      if (r) ctx.rotate((r * Math.PI) / 2);
+      ctx.drawImage(pc.canvas, -w / 2, -h / 2, w, h);
+      ctx.restore();
+    }
+  }
+
+  // Grid slot under a pointer event (or null), plus the point in canvas coordinates.
+  hit(e) {
+    const rect = this.els.canvas.getBoundingClientRect();
+    const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+    const x = cx - this.pad, y = cy + this.els.scroll.scrollTop - this.pad;
+    let j = null;
+    if (x >= 0 && y >= 0 && Math.floor(x / this.cell) < this.cols) {
+      j = Math.floor(y / this.cell) * this.cols + Math.floor(x / this.cell);
+    }
+    return { j, cx, cy };
+  }
+
+  // ---------- moving pieces around the tray ----------
+
+  onDown(e) {
+    sfx.unlock(); // iPhones only allow sound that starts from a touch
+    const { j, cx, cy } = this.hit(e);
+    if (j == null || j >= this.list.length) return;
+    const mouse = e.pointerType === 'mouse';
+    this.drag = { id: e.pointerId, from: j, over: j, x0: cx, y0: cy, cx, cy, mouse, active: false };
+    if (!mouse) this.drag.timer = setTimeout(() => this.lift(), 350);
+  }
+
+  lift() {
+    const d = this.drag;
+    if (!d) return;
+    d.active = true;
+    try {
+      this.els.canvas.setPointerCapture(d.id);
+    } catch {}
+    sfx.pick(); // same sound as picking a piece up on the table
+    navigator.vibrate?.(10);
+    this.redraw();
+  }
+
+  onMove(e) {
+    const d = this.drag;
+    if (!d || e.pointerId !== d.id) return;
+    const { j, cx, cy } = this.hit(e);
+    d.cx = cx;
+    d.cy = cy;
+    if (!d.active) {
+      const moved = Math.hypot(cx - d.x0, cy - d.y0);
+      if (!d.mouse) {
+        if (moved > 10) this.endDrag(); // a scroll, not a press-and-hold
+        return;
+      }
+      if (moved <= 6) return;
+      this.lift(); // a mouse drag lifts straight away
+    }
+    if (j != null) d.over = Math.min(j, this.list.length - 1);
+    // Near the top or bottom edge, scroll so the piece can travel further.
+    const edge = 50;
+    if (cy < edge) this.els.scroll.scrollTop -= 12;
+    else if (cy > this.h - edge) this.els.scroll.scrollTop += 12;
+    this.redraw();
+  }
+
+  onUp(e) {
+    const d = this.drag;
+    if (!d || e.pointerId !== d.id) return;
+    if (d.active) {
+      this.skipClick = true; // the click that follows a move isn't a tap
+      sfx.drop();
+      if (d.over !== d.from) {
+        this.game.reorderTray(this.order());
+        this.refresh();
+      }
+    }
+    this.endDrag();
+  }
+
+  endDrag() {
+    clearTimeout(this.drag?.timer);
+    this.drag = null;
+    this.redraw();
+  }
+
+  // The tray order with the lifted piece moved to where it's hovering.
+  order() {
+    const d = this.drag;
+    if (!d?.active) return this.list;
+    const arr = this.list.slice();
+    const [idx] = arr.splice(d.from, 1);
+    arr.splice(d.over, 0, idx);
+    return arr;
   }
 
   onTap(e) {
-    const rect = this.els.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left - this.pad;
-    const y = e.clientY - rect.top + this.els.scroll.scrollTop - this.pad;
-    if (x < 0 || y < 0) return;
-    const j = Math.floor(y / this.cell) * this.cols + Math.floor(x / this.cell);
-    if (Math.floor(x / this.cell) >= this.cols || j >= this.list.length) return;
+    if (this.skipClick) {
+      this.skipClick = false;
+      return;
+    }
+    const { j } = this.hit(e);
+    if (j == null || j >= this.list.length) return;
     const idx = this.list[j];
     const at = this.selected.indexOf(idx);
     if (at >= 0) this.selected.splice(at, 1);

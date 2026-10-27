@@ -77,7 +77,9 @@ export function placedCount(groups) {
 // those pieces were in". The live room and every player apply patches with this.
 //
 // state: { groups: [{ x, y, r, locked, members }], tray: [piece], rot?: [r per piece] }
-// patch: { groups?: [...], trayAdd?: [{ i, r }], trayRemove?: [piece] }
+// patch: { groups?: [...], trayAdd?: [{ i, r, at? }], trayRemove?: [piece], trayOrder?: [piece] }
+//   trayAdd `at`: where in the tray the piece was dropped (no `at`: the front).
+//   trayOrder: someone rearranged the tray; pieces it doesn't mention keep their order after.
 export function applyPatch(state, patch) {
   const touched = new Set();
   for (const g of patch.groups || []) for (const i of g.members) touched.add(i);
@@ -88,9 +90,15 @@ export function applyPatch(state, patch) {
   for (const g of patch.groups || []) {
     state.groups.push({ x: g.x, y: g.y, r: g.r || 0, locked: !!g.locked, members: [...g.members] });
   }
-  for (const { i, r } of [...(patch.trayAdd || [])].reverse()) {
-    state.tray.unshift(i);
-    if (state.rot) state.rot[i] = r || 0;
+  const adds = patch.trayAdd || [];
+  for (const { i } of adds.filter((a) => !Number.isInteger(a.at)).reverse()) state.tray.unshift(i);
+  for (const { i, at } of adds.filter((a) => Number.isInteger(a.at))) state.tray.splice(Math.min(at, state.tray.length), 0, i);
+  if (state.rot) for (const { i, r } of adds) state.rot[i] = r || 0;
+  if (Array.isArray(patch.trayOrder)) {
+    const inTray = new Set(state.tray);
+    const ordered = patch.trayOrder.filter((i) => inTray.has(i));
+    const listed = new Set(ordered);
+    state.tray = [...ordered, ...state.tray.filter((i) => !listed.has(i))];
   }
   return state;
 }

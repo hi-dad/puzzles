@@ -14,9 +14,9 @@ Turn your own photos into jigsaw puzzles and solve them in the browser, on iPhon
 - Adjustable tray piece size (⋯ menu)
 - Select several table pieces (tap them or drag a box; Shift on a Mac) and move them together
 - Tidy: send all single loose pieces back to the tray (placed pieces and joined clusters stay)
-- Sort the tray by colour (shared with the "All pieces" view)
-- "All pieces" view: every tray piece full-screen, sortable by colour; select several and place them together
-- "Edges only" tray filter, a faint picture on the board as a guide, table colours, sounds
+- Sort the tray by color (shared with the "All pieces" view)
+- "All pieces" view: every tray piece full-screen, sortable by color; select several and place them together
+- "Edges only" tray filter, a faint picture on the board as a guide, table colors, sounds
 - Auto-saves every move on the device (IndexedDB); a library with progress and finish times
 
 ## Run locally

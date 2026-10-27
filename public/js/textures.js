@@ -161,13 +161,6 @@ export function swatchURL(key) {
   return surface(key, 96).toDataURL();
 }
 
-// Dark felt behind the "All pieces" view.
-export function trayFelt() {
-  const id = 'tray';
-  if (!cache.has(id)) cache.set(id, felt(512, [40, 33, 28], 31, 1.2));
-  return cache.get(id);
-}
-
 // Tray colours. `ink` is the colour of messages written on the tray.
 export const TRAYS = {
   ivory: { label: 'Warm ivory tray', color: '#F3EBDD', ink: '#6B5E4E' },

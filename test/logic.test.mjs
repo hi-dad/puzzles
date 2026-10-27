@@ -112,3 +112,15 @@ test('settle never joins a group another player is holding', () => {
   assert.equal(r.joined, 0);
   assert.equal(groups.length, 2);
 });
+
+test('a piece dropped into the tray stays where it was dropped', () => {
+  const state = { groups: [{ x: 1, y: 1, r: 0, locked: false, members: [9] }], tray: [1, 2, 3, 4] };
+  applyPatch(state, { trayAdd: [{ i: 9, r: 0, at: 2 }] });
+  assert.deepEqual(state.tray, [1, 2, 9, 3, 4]);
+});
+
+test('a rearranged tray keeps pieces others added meanwhile', () => {
+  const state = { groups: [], tray: [1, 2, 3, 7] }; // 7 arrived after the reorder was made
+  applyPatch(state, { trayOrder: [3, 1, 2, 5] }); // 5 has since left the tray
+  assert.deepEqual(state.tray, [3, 1, 2, 7]);
+});

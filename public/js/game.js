@@ -26,11 +26,16 @@ export const TRAY_SIZE = { min: 0.7, max: 1.8 };
 // Dragging a piece low on the screen to keep it out of the way is common on phones, so the
 // "Drop to put back in the tray" hint only appears after hovering over the tray a moment.
 const TRAY_HINT_DELAY = 2000;
-function savedTraySort() {
+// Which pieces the tray shows, and in what order: 'all' (your order), 'edges' (edge
+// pieces only, your order) or 'color' (every piece, color order, which you can also adjust).
+const TRAY_VIEWS = ['all', 'edges', 'color'];
+function savedTrayView() {
   try {
-    return localStorage.getItem('pt-traysort') === 'colour' ? 'colour' : 'mixed';
+    const v = localStorage.getItem('pt-trayview');
+    if (TRAY_VIEWS.includes(v)) return v;
+    return localStorage.getItem('pt-traysort') === 'colour' ? 'color' : 'all'; // older setting
   } catch {
-    return 'mixed';
+    return 'all';
   }
 }
 function savedTrayScale() {
@@ -91,8 +96,9 @@ export class Game {
 
     this.bg = BACKGROUNDS[rec.bg] ? rec.bg : DEFAULT_BG;
     this.ghost = !!rec.ghost;
-    this.edgesOnly = false;
-    this.traySort = savedTraySort();
+    this.trayView = savedTrayView();
+    // Your adjustments to the color order (piece list), saved with the puzzle.
+    this.colorOrder = Array.isArray(rec.colorOrder) ? [...rec.colorOrder] : null;
     this.trayVer = 0; // bumped whenever what the tray shows changes
     this.selected = new Set(); // loose groups picked for moving together
     this.selectMode = false;
@@ -213,6 +219,43 @@ export class Game {
     this.redraw();
   }
 
+  // The zoom-out button: glide back to the whole table in view.
+  zoomOutAll() {
+    const pad = 20;
+    const s = Math.min((this.w - 2 * pad) / this.rec.imgW, (this.boardH - 2 * pad) / this.rec.imgH) * 0.8;
+    this.glideTo(s, (this.w - this.rec.imgW * s) / 2, (this.boardH - this.rec.imgH * s) / 2);
+  }
+
+  // Double-tap: zoom in around the tap, or (when already zoomed in) back out to the mat
+  // filling the screen. Not all the way out: that's what the fit button is for.
+  doubleTapZoom(p) {
+    const W = this.rec.imgW * 1.06, H = this.rec.imgH * 1.06;
+    const snug = this.clampScale(Math.min(this.w / W, this.boardH / H));
+    if (this.cam.s < snug * 1.25) {
+      const s = this.clampScale(snug * 1.6);
+      const wx = (p.x - this.cam.x) / this.cam.s, wy = (p.y - this.cam.y) / this.cam.s;
+      this.glideTo(s, p.x - wx * s, p.y - wy * s);
+    } else {
+      this.glideTo(snug, (this.w - this.rec.imgW * snug) / 2, (this.boardH - this.rec.imgH * snug) / 2);
+    }
+  }
+
+  glideTo(s, x, y, dur = 260) {
+    const from = { ...this.cam }, t0 = performance.now();
+    cancelAnimationFrame(this.glide);
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / dur);
+      const e = 1 - Math.pow(1 - k, 3);
+      // zoom evenly (in log space) so the glide doesn't rush at one end
+      this.cam.s = from.s * Math.pow(s / from.s, e);
+      this.cam.x = from.x + (x - from.x) * e;
+      this.cam.y = from.y + (y - from.y) * e;
+      this.redraw();
+      if (k < 1) this.glide = requestAnimationFrame(step);
+    };
+    this.glide = requestAnimationFrame(step);
+  }
+
   zoomBy(factor) {
     this.zoomAt(this.w / 2, this.boardH / 2, factor);
   }
@@ -223,22 +266,71 @@ export class Game {
 
   // ---------- tray ----------
 
+  get edgesOnly() {
+    return this.trayView === 'edges';
+  }
+
   trayList() {
-    const key = `${this.trayVer}:${this.tray.length}:${this.edgesOnly}:${this.traySort}`;
+    const key = `${this.trayVer}:${this.tray.length}:${this.trayView}`;
     if (this.trayCache?.key === key) return this.trayCache.list;
     let list = this.edgesOnly ? this.tray.filter((i) => this.pieces[i].edge) : this.tray;
-    if (this.traySort === 'colour') {
-      const keys = this.colourKeys();
-      list = [...list].sort((a, b) => keys[a] - keys[b]);
-    }
+    if (this.trayView === 'color') list = this.colorList();
     this.trayCache = { key, list };
     return list;
   }
 
-  setTraySort(mode) {
-    this.traySort = mode === 'colour' ? 'colour' : 'mixed';
+  // Tray pieces in color order, following your adjustments: pieces you placed keep their
+  // spot, and any others (e.g. just put back in the tray) slot in by color.
+  colorList() {
+    const keys = this.colourKeys();
+    const inTray = new Set(this.tray);
+    const out = (this.colorOrder || []).filter((i) => inTray.has(i));
+    const placed = new Set(out);
+    const rest = this.tray.filter((i) => !placed.has(i)).sort((a, b) => keys[a] - keys[b]);
+    for (const i of rest) {
+      let at = out.findIndex((j) => keys[j] > keys[i]);
+      if (at < 0) at = out.length;
+      out.splice(at, 0, i);
+    }
+    return out;
+  }
+
+  // A new order for the pieces the tray is showing (rearranged in the Pieces view). In the
+  // color view it becomes your color order; otherwise the shown pieces swap among their
+  // own spots in the tray (so with edges shown, the other pieces stay put).
+  reorderTray(order) {
+    if (this.trayView === 'color') {
+      this.colorOrder = [...order];
+    } else {
+      const shown = new Set(order);
+      const spots = [];
+      this.tray.forEach((idx, at) => shown.has(idx) && spots.push(at));
+      spots.forEach((at, n) => (this.tray[at] = order[n]));
+      this.emit({ trayOrder: [...this.tray] });
+    }
+    this.trayVer++;
+    this.changed();
+  }
+
+  // Selected pieces to the start of the tray (in the current view), to work on next.
+  moveToFront(pieces) {
+    sfx.pick();
+    const first = new Set(pieces);
+    if (this.trayView === 'color') {
+      this.colorOrder = [...pieces, ...this.trayList().filter((i) => !first.has(i))];
+    } else {
+      this.tray = [...pieces.filter((i) => this.tray.includes(i)), ...this.tray.filter((i) => !first.has(i))];
+      this.emit({ trayOrder: [...this.tray] });
+    }
+    this.trayScroll = 0;
+    this.trayVer++;
+    this.changed();
+  }
+
+  setTrayView(view) {
+    this.trayView = TRAY_VIEWS.includes(view) ? view : 'all';
     try {
-      localStorage.setItem('pt-traysort', this.traySort);
+      localStorage.setItem('pt-trayview', this.trayView);
     } catch {}
     this.trayScroll = 0;
     this.trayVer++;
@@ -267,13 +359,6 @@ export class Game {
 
   inTray(y) {
     return y > this.h - this.trayH;
-  }
-
-  setEdgesOnly(v) {
-    this.edgesOnly = v;
-    this.trayVer++;
-    this.trayScroll = 0;
-    this.redraw();
   }
 
   setGhost(v) {
@@ -404,7 +489,7 @@ export class Game {
     }
     for (const i of m.pulled || []) {
       const g = this.groupOf[i];
-      if (g) this.returnToTray(g);
+      if (g) this.returnToTray(g, m.trayAt ?? 0);
     }
     this.dragSet = new Set();
     this.overTray = false;
@@ -500,15 +585,32 @@ export class Game {
     return this.keys;
   }
 
-  returnToTray(g) {
+  // `at`: where in the tray it goes (default: the front).
+  returnToTray(g, at = 0) {
     this.groups.splice(this.groups.indexOf(g), 1);
     this.selected.delete(g);
     const idx = g.members[0];
     this.groupOf[idx] = null;
     this.rot[idx] = g.r;
-    this.tray.unshift(idx);
+    this.tray.splice(Math.min(at, this.tray.length), 0, idx);
     this.trayVer++;
-    this.trayScroll = 0;
+  }
+
+  // Where in the tray a piece dropped at screen point p belongs: the slot under the
+  // finger. (When the tray is sorted by color, order comes from the sort anyway.)
+  trayInsertAt(p) {
+    const list = this.trayList();
+    const col = Math.max(0, Math.floor((p.x + this.trayScroll - 12) / this.slot));
+    const row = clamp(Math.floor((p.y - (this.h - this.trayH) - 12) / this.slot), 0, this.trayRows - 1);
+    const k = col * this.trayRows + row;
+    return k >= list.length ? this.tray.length : this.tray.indexOf(list[k]);
+  }
+
+  // Index in the shown tray list under screen point p.
+  slotAt(p) {
+    const col = Math.max(0, Math.floor((p.x + this.trayScroll - 12) / this.slot));
+    const row = clamp(Math.floor((p.y - (this.h - this.trayH) - 12) / this.slot), 0, this.trayRows - 1);
+    return col * this.trayRows + row;
   }
 
   // Send every single loose piece on the table back to the tray. Pieces locked into the
@@ -517,6 +619,7 @@ export class Game {
     const loose = this.groups.filter((g) => !g.locked && g.members.length === 1 && !this.busy(g));
     for (const g of loose) this.returnToTray(g);
     if (loose.length) {
+      this.trayScroll = 0; // they went in at the front
       this.emit({ trayAdd: loose.map((g) => ({ i: g.members[0], r: this.rot[g.members[0]] || 0 })) });
       sfx.drop();
       this.changed();
@@ -594,8 +697,18 @@ export class Game {
   dropMany(list, p) {
     const pulled = this.m?.pulled || [];
     if (this.inTray(p.y) && list.every((g) => g.members.length === 1 && !g.locked)) {
-      for (const g of list) this.returnToTray(g);
-      this.emit({ trayAdd: list.map((g) => ({ i: g.members[0], r: g.r || 0 })) });
+      const shown = this.trayList();
+      const at = this.trayInsertAt(p);
+      list.forEach((g, n) => this.returnToTray(g, at + n));
+      if (this.trayView === 'color') {
+        // the tray's own order doesn't matter here; the color order gets the drop spot
+        const slot = Math.min(this.slotAt(p), shown.length);
+        const order = shown.slice();
+        order.splice(slot, 0, ...list.map((g) => g.members[0]));
+        this.colorOrder = order;
+        this.trayVer++;
+      }
+      this.emit({ trayAdd: list.map((g, n) => ({ i: g.members[0], r: g.r || 0, at: at + n })) });
       sfx.drop();
       this.changed();
       this.selectionChanged();
@@ -738,6 +851,7 @@ export class Game {
       tray: [...this.tray],
       groups: this.groups.map((g) => ({ x: r2(g.x), y: r2(g.y), r: g.r, locked: g.locked, members: [...g.members] })),
       rot: this.rotate ? [...this.rot] : undefined,
+      colorOrder: this.colorOrder ? [...this.colorOrder] : undefined,
       placed: this.placed(),
       done: !!this.rec.done,
       bg: this.bg,
@@ -830,14 +944,17 @@ export class Game {
     const g = this.hitBoard(p.x, p.y);
     if (g) {
       this.beginDrag(g, p, e.pointerId);
-      this.m.toggle = picking; // a tap selects/deselects instead of turning the piece
+      // A tap selects/deselects instead of turning the piece. With a mouse, a plain click
+      // already does (clicks and drags are easy to tell apart), except on rotation puzzles,
+      // where a click turns the piece.
+      this.m.toggle = picking || (e.pointerType === 'mouse' && !this.rotate);
     } else if (picking) {
       // drag a box to select everything inside it
       this.mode = 'lasso';
       this.m = { id: e.pointerId, x0: p.x, y0: p.y, x1: p.x, y1: p.y };
     } else {
       this.mode = 'pan';
-      this.m = { id: e.pointerId, lx: p.x, ly: p.y };
+      this.m = { id: e.pointerId, lx: p.x, ly: p.y, x0: p.x, y0: p.y, t0: e.timeStamp };
     }
   }
 
@@ -902,10 +1019,12 @@ export class Game {
         // Mouse: any drag lifts the piece. Touch: swipe up lifts it, sideways scrolls the tray.
         const lift = m.mouse ? Math.hypot(dx, dy) > 4 : (dy < -8 && -dy > Math.abs(dx)) || !this.inTray(p.y);
         if (lift) {
+          const trayAt = this.tray.indexOf(m.idx);
           const g = this.pull(m.idx, p);
           this.beginDrag(g, p, m.id);
           this.m.moved = true;
           this.m.pulled = [m.idx];
+          this.m.trayAt = trayAt;
           return;
         }
       }
@@ -965,6 +1084,21 @@ export class Game {
       this.m = null;
       this.selectionChanged();
       return;
+    } else if (this.mode === 'pan') {
+      // A quick tap on the empty table; two in a row zoom in or back out.
+      if (e.type === 'pointerup' && Math.hypot(p.x - m.x0, p.y - m.y0) < 8 && e.timeStamp - m.t0 < 300) {
+        const last = this.lastTap;
+        if (last && e.timeStamp - last.t < 350 && Math.hypot(p.x - last.x, p.y - last.y) < 40) {
+          this.lastTap = null;
+          this.doubleTapZoom(p);
+        } else {
+          this.lastTap = { t: e.timeStamp, x: p.x, y: p.y };
+          if (this.selected.size && !this.selectMode) {
+            this.selected.clear(); // a tap on the empty table clears the selection
+            this.selectionChanged();
+          }
+        }
+      }
     } else if (this.mode === 'tray') {
       if (m.scrolling) {
         this.trayVel = m.vel;
