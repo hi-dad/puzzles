@@ -3,6 +3,7 @@ import { cloud } from './sync.js';
 import { preparePhoto, loadBlobImage, puzzleImage } from './image.js';
 import { Cut, chooseGrid } from './geometry.js';
 import { shuffled } from './logic.js';
+import { FORMAT_VERSION, canOpen } from './format.js';
 import { Game, BACKGROUNDS, MATS, TRAYS, DEFAULT_BG } from './game.js';
 import { swatchURL, matSwatchURL } from './textures.js';
 import { PieceGrid } from './piecegrid.js';
@@ -249,6 +250,7 @@ async function startPuzzle() {
   const rotate = $('#rotate-input').checked;
   const rec = {
     id,
+    v: FORMAT_VERSION,
     name: $('#name-input').value.trim() || 'Puzzle',
     createdAt: now,
     updatedAt: now,
@@ -306,6 +308,13 @@ async function openGame(id) {
   const blob = rec && ((await db.getImage(id)) || (await cloud.fetchImage(id)));
   if (!rec || !blob) {
     $('#play-loading').hidden = true;
+    location.hash = '#/';
+    return;
+  }
+  if (!canOpen(rec)) {
+    $('#play-loading').hidden = true;
+    rec = null;
+    alert('This puzzle was saved by a newer version of Poozles. Reload the page (or update the app) to open it.');
     location.hash = '#/';
     return;
   }
@@ -386,6 +395,7 @@ async function saveNow() {
   clearTimeout(saveTimer);
   if (!rec || !dirty) return;
   dirty = false;
+  rec.v ??= FORMAT_VERSION;
   rec.updatedAt = Date.now();
   try {
     await db.put(structuredClone(rec));
@@ -425,6 +435,7 @@ const CLOUD_TEXT = {
   synced: '☁︎ Synced',
   saving: 'Saving…',
   offline: 'Offline · saved on this device',
+  update: 'Reload to update Poozles',
   'signed-out': 'Sign in to sync',
 };
 
@@ -682,6 +693,7 @@ function wire() {
   $('#conflict-keep').addEventListener('click', () => resolveConflict(false));
   $('#cloud-status').addEventListener('click', () => {
     if (cloud.status === 'signed-out') openSignIn();
+    else if (cloud.status === 'update') location.reload();
     else if (cloud.email) openAccount();
   });
   $('#hero-signin').addEventListener('click', openSignIn);

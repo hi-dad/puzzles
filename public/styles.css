@@ -647,7 +647,7 @@ a { color: inherit; text-decoration: none; }
   text-overflow: ellipsis;
   cursor: pointer;
 }
-.cloud-pill[data-state='signed-out'] { background: var(--accent); color: #fff; cursor: pointer; }
+.cloud-pill[data-state='signed-out'], .cloud-pill[data-state='update'] { background: var(--accent); color: #fff; cursor: pointer; }
 .cloud-pill[data-state='offline'] { color: var(--accent-deep); }
 .conflict {
   position: absolute;

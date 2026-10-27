@@ -7,3 +7,4 @@
 - Saves are keyed by the signed-in email (puzzles rows and R2 photo keys `encodeURIComponent(email)/id`). Never change that key: existing players' puzzles depend on it.
 - The IndexedDB name stays `puzzle-table` (renaming it would hide players' local saves).
 - Owner stays anonymous: never put a real name in the repo, README or commits.
+- Saved-puzzle format is versioned (`public/js/format.js`, field `v`). Only add fields; never rename or repurpose one; keep unknown fields when saving. Bump `FORMAT_VERSION` for changes older code would misread. Older code then won't open those puzzles, and the Worker answers 426 instead of letting an older format overwrite a newer one.

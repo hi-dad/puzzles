@@ -21,6 +21,7 @@
 // static assets without running this code.
 
 import { verifyIdToken, createSession, sessionEmail, endSession, sessionCookie } from './auth.js';
+import { isDowngrade } from '../public/js/format.js';
 
 const ID = /^[A-Za-z0-9-]{8,64}$/;
 const MAX_RECORD = 1_500_000; // bytes of JSON per puzzle (1000 pieces ≈ 100 KB)
@@ -128,6 +129,8 @@ async function api(request, env, url, owner) {
       }
       if (rec?.id !== id || !Number.isFinite(rec.updatedAt)) return json({ error: 'Bad puzzle' }, 400);
       if (row?.deleted) return json({ error: 'Deleted on another device' }, 410);
+      // Older code must never overwrite a puzzle saved in a newer format.
+      if (row && isDowngrade(parseRecord(row.data), rec)) return json({ error: 'Saved by a newer version of Poozles' }, 426);
       // Single person, several devices: keep whichever copy was saved most recently.
       if (row && row.updated_at > rec.updatedAt) return json({ error: 'Newer copy in the cloud', updatedAt: row.updated_at }, 409);
       await env.DB.prepare(
@@ -167,6 +170,14 @@ async function api(request, env, url, owner) {
   }
 
   return json({ error: 'Not found' }, 404);
+}
+
+function parseRecord(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 function photoKey(owner, id) {

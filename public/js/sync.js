@@ -13,10 +13,11 @@ import { db } from './db.js';
 const PUSH_DELAY = 30_000;
 const listeners = new Set();
 const pushTimers = new Map();
-let status = 'checking'; // checking | synced | saving | offline | signed-out | local
+let status = 'checking'; // checking | synced | saving | offline | signed-out | update | local
 let email = null;
 
 class AuthError extends Error {}
+class UpdateError extends Error {}
 class NoBackend extends Error {}
 
 async function api(path, opts = {}) {
@@ -42,6 +43,7 @@ const idle = () => status === 'local' || status === 'signed-out';
 
 function fail(err) {
   if (err instanceof AuthError) setStatus('signed-out');
+  else if (err instanceof UpdateError) setStatus('update');
   else if (err instanceof NoBackend) setStatus('local');
   else setStatus('offline');
 }
@@ -263,5 +265,6 @@ async function push(id) {
     await db.remove(id); // deleted on another device
     cloud.onLocalChange?.();
   }
+  else if (res.status === 426) throw new UpdateError(); // the cloud copy is from a newer Poozles
   else if (!res.ok) throw new Error(`save ${res.status}`);
 }
