@@ -28,6 +28,28 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- Welcome (signed out) -->
+  <section id="screen-welcome" class="screen scroll wood" hidden>
+    <header class="home-bar">
+      <a href="#/" class="logo-link"><span class="logo" role="img" aria-label="Poozles"><span aria-hidden="true">P</span><svg class="logo-oo" viewBox="28 15 84 70" aria-hidden="true"><path fill="#F6A58C" fill-rule="evenodd" transform="translate(40 0)" d="M30 30 H44 C40 16 60 16 56 30 H70 V70 H56 C60 84 40 84 44 70 H30 V56 C40 60 40 40 30 44 Z M50 41 A9 9 0 1 0 50.01 41 Z"/><path fill="#EF5A4C" fill-rule="evenodd" d="M30 30 H44 C40 16 60 16 56 30 H70 V44 C84 40 84 60 70 56 V70 H56 C60 84 40 84 44 70 H30 Z M50 41 A9 9 0 1 0 50.01 41 Z"/></svg><span aria-hidden="true">zles</span></span></a>
+      <span class="spacer"></span>
+      <button id="welcome-signin" class="link-btn welcome-signin" type="button">Sign in</button>
+    </header>
+    <hr class="home-rule">
+    <div class="welcome">
+      <h1>Build a puzzle with friends</h1>
+      <p class="welcome-sub">Free <span aria-hidden="true">•</span> No ads <span aria-hidden="true">•</span> Any photo</p>
+      <div class="welcome-ctas">
+        <button id="welcome-start" class="primary" type="button">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"/><path d="M4 14v5a1 1 0 001 1h14a1 1 0 001-1v-5"/></svg>
+          Choose a photo
+        </button>
+        <button id="welcome-signup" class="secondary welcome-outline" type="button">Sign up</button>
+      </div>
+    </div>
+    <img class="welcome-pieces" src="welcome-pieces.jpg" alt="Puzzle pieces cut from photos: a sea cove, flowers, a golden retriever, mountains and a sunset">
+  </section>
+
   <!-- Library -->
   <section id="screen-library" class="screen scroll wood" hidden>
     <header class="home-bar">

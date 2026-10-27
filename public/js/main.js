@@ -11,7 +11,9 @@ import { PieceGrid } from './piecegrid.js';
 import { sfx } from './sound.js';
 
 const $ = (s) => document.querySelector(s);
-const screens = { library: $('#screen-library'), new: $('#screen-new'), play: $('#screen-play') };
+const screens = {
+  welcome: $('#screen-welcome'), library: $('#screen-library'), new: $('#screen-new'), play: $('#screen-play'),
+};
 const COUNTS = [
   [24, 'Quick'], [48, 'Easy'], [100, 'Cozy'], [150, 'Relaxed'], [250, 'Classic'], [500, 'Challenge'], [1000, 'Epic'],
 ];
@@ -43,8 +45,38 @@ function el(tag, props = {}, ...kids) {
 
 // ---------------- routing ----------------
 
+// Poozles asks everyone to sign in; signed-out visitors get the welcome page. This device
+// remembers that someone signed in, so the library still opens offline or before the
+// server has answered.
+const SIGNED_IN_KEY = 'pz-signed-in';
+function rememberSignedIn(on) {
+  try {
+    if (on) localStorage.setItem(SIGNED_IN_KEY, '1');
+    else localStorage.removeItem(SIGNED_IN_KEY);
+  } catch {}
+}
+function needsSignIn() {
+  if (cloud.status === 'signed-out') return true;
+  if (cloud.status !== 'checking') return false;
+  try {
+    return localStorage.getItem(SIGNED_IN_KEY) !== '1';
+  } catch {
+    return true;
+  }
+}
+let startAfterSignIn = false; // "Choose a photo" was tapped while signed out
+
 async function route() {
   const h = location.hash || '#/';
+  if (needsSignIn()) {
+    await closeGame();
+    show('welcome');
+    if (h === '#/new') {
+      startAfterSignIn = true;
+      openSignIn('Sign in to start a puzzle.');
+    }
+    return;
+  }
   if (!h.startsWith('#/play/')) await closeGame();
   if (h === '#/new') {
     show('new');
@@ -633,7 +665,12 @@ async function finishSignIn(provider, idToken, name) {
     return;
   }
   $('#signin').hidden = true;
+  rememberSignedIn(true);
   await syncNow();
+  if (startAfterSignIn) {
+    startAfterSignIn = false;
+    location.hash = '#/new';
+  }
   if (pendingJoin) {
     const code = pendingJoin;
     pendingJoin = null;
@@ -652,6 +689,7 @@ async function signOut(deleteAccount) {
     notice('Couldn’t delete your account', 'Please try again when you’re online.');
     return;
   }
+  rememberSignedIn(false);
   location.hash = '#/';
   location.reload();
 }
@@ -840,7 +878,25 @@ function wire() {
     else if (cloud.status === 'update') location.reload();
     else if (cloud.email) openAccount();
   });
-  $('#hero-signin').addEventListener('click', openSignIn);
+  $('#hero-signin').addEventListener('click', () => openSignIn());
+  $('#welcome-signin').addEventListener('click', () => openSignIn());
+  $('#welcome-signup').addEventListener('click', () => openSignIn('It’s free. Sign in with Apple or Google to save your puzzles and play with friends.'));
+  $('#welcome-start').addEventListener('click', () => {
+    startAfterSignIn = true;
+    openSignIn('Sign in to start your first puzzle.');
+  });
+  $('#signin-cancel').addEventListener('click', () => (startAfterSignIn = false));
+  // Switch between the welcome page and the library when sign-in state becomes known.
+  let gated = needsSignIn();
+  cloud.onStatus((s) => {
+    if (s === 'synced') rememberSignedIn(true);
+    if (s === 'signed-out') rememberSignedIn(false);
+    const now = needsSignIn();
+    if (now !== gated) {
+      gated = now;
+      route();
+    }
+  });
   $('#btn-account').addEventListener('click', () => (cloud.email ? openAccount() : openSignIn()));
   $('#signin-cancel').addEventListener('click', () => ($('#signin').hidden = true));
   $('#signin-dev').addEventListener('click', async () => {
