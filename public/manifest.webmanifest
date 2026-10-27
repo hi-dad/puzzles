@@ -1,6 +1,6 @@
 {
-  "name": "Puzzle Table",
-  "short_name": "Puzzles",
+  "name": "Poozles",
+  "short_name": "Poozles",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f6f1e7",

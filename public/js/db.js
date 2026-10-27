@@ -51,6 +51,10 @@ export const db = {
     const v = await run('images', 'readonly', (s) => s.get(id));
     if (v && !v.inCloud) await run('images', 'readwrite', (s) => s.put({ ...v, inCloud: true }, id));
   },
+  async clear() {
+    await run('puzzles', 'readwrite', (s) => s.clear());
+    await run('images', 'readwrite', (s) => s.clear());
+  },
   async getImage(id) {
     const v = await run('images', 'readonly', (s) => s.get(id));
     return v ? new Blob([v.buf], { type: v.type }) : null;

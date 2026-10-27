@@ -4,12 +4,12 @@
   "main": "worker/index.js",
   "compatibility_date": "2026-10-01",
 
-  // The app itself (HTML/JS/CSS) is served straight from Cloudflare's asset store;
-  // only /api/* runs the Worker code.
+  // The app itself (HTML/JS/CSS) comes from Cloudflare's asset store. The Worker runs
+  // first so it can forward the old workers.dev address and answer /api/*.
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": true
   },
 
   // Puzzle progress (one row per puzzle).
@@ -29,24 +29,18 @@
     }
   ],
 
-  // Cloudflare Access: who may sign in is set in the dashboard (Worker → Access). These
-  // public identifiers let the Worker check that each request's signed login token was
-  // issued by this account's Access for this app.
+  // Public sign-in identifiers (not secrets): Apple's Services ID (website) and bundle ID
+  // (iPhone app), and Google's web and iOS OAuth client IDs.
   "vars": {
-    "TEAM_DOMAIN": "https://old-cloud-6825.cloudflareaccess.com",
-    "POLICY_AUD": "d1a1dae14b62d6fd2d76414fadc2706d787a7dac94dca8d844bbf78a361ef0dc"
+    "APPLE_SERVICES_ID": "app.poozles.web",
+    "APPLE_BUNDLE_ID": "app.poozles",
+    "GOOGLE_WEB_CLIENT_ID": "392796332509-c9aqbkht9frsu9kb27p7bm74095a8146.apps.googleusercontent.com",
+    "GOOGLE_IOS_CLIENT_ID": "392796332509-jvs3enrad2n3llj3qa8ki6jug9jns5hb.apps.googleusercontent.com"
   },
 
+  "routes": [{ "pattern": "poozles.app", "custom_domain": true }],
   "workers_dev": true,
-  // No per-version preview URLs: one address, protected by Access.
+  // No per-version preview URLs: one address.
   "preview_urls": false,
-  "observability": { "enabled": true },
-
-  // Pretend-login for `wrangler dev` on your own computer.
-  "access": {
-    "dev": {
-      "aud": "local-dev",
-      "identity": { "email": "dev@example.com" }
-    }
-  }
+  "observability": { "enabled": true }
 }

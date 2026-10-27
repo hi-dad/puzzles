@@ -1,8 +1,14 @@
-// Puzzle Table backend: a Cloudflare Worker that serves the app and a small JSON API
-// for saving puzzles to the cloud, so the same person sees the same puzzles on every
-// device they sign in from.
+// Poozles backend: a Cloudflare Worker that serves the app and a small JSON API for
+// saving puzzles to the cloud, so the same person sees the same puzzles on every device
+// they sign in from.
 //
+//   GET    /api/config            -> public sign-in settings for the website
+//   POST   /api/auth/apple        -> { idToken } from Sign in with Apple; starts a session
+//   POST   /api/auth/google       -> { idToken } from Sign in with Google; starts a session
+//   POST   /api/auth/dev          -> local development only (needs DEV_EMAIL in .dev.vars)
+//   POST   /api/auth/signout      -> ends this device's session
 //   GET    /api/me                -> { email }
+//   DELETE /api/account           -> deletes everything this person stored
 //   GET    /api/puzzles           -> [{ id, updatedAt, deleted }]   (this person's puzzles)
 //   GET    /api/puzzles/:id       -> the puzzle record (JSON)
 //   PUT    /api/puzzles/:id       -> save a record; 409 if the cloud copy is newer
@@ -10,38 +16,27 @@
 //   GET    /api/images/:id        -> the puzzle photo (JPEG, from R2)
 //   PUT    /api/images/:id        -> upload the puzzle photo
 //
-// Who is asking comes from Cloudflare Access, which sits in front of the whole Worker:
-// nobody reaches it without signing in, and the email it verified is the "owner" key
-// for everything stored here. Everything else (the HTML/JS/CSS in /public) is served
-// as static assets without running this code.
+// Who is asking comes from a session (see auth.js); the verified email is the "owner" key
+// for everything stored here. Everything else (the HTML/JS/CSS in /public) is served as
+// static assets without running this code.
+
+import { verifyIdToken, createSession, sessionEmail, endSession, sessionCookie } from './auth.js';
 
 const ID = /^[A-Za-z0-9-]{8,64}$/;
 const MAX_RECORD = 1_500_000; // bytes of JSON per puzzle (1000 pieces ≈ 100 KB)
 const MAX_IMAGE = 20_000_000; // bytes per photo
 
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
+    // The old workers.dev address forwards to the real one.
+    if (url.hostname.endsWith('.workers.dev')) return Response.redirect(`https://poozles.app${url.pathname}${url.search}`, 301);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
-
-    const diag = {};
-    const email = await signedInEmail(request, env, ctx, diag);
-    if (!email) {
-      // Say what was (not) received, to tell "Access isn't in front of this Worker" apart
-      // from "Access ran but sent no usable identity". No secrets or values are included.
-      return json({
-        error: 'Not signed in',
-        accessRan: !!ctx.access,
-        accessAud: !!ctx.access?.aud,
-        accessToken: request.headers.has('cf-access-jwt-assertion'),
-        accessEmailHeader: request.headers.has('cf-access-authenticated-user-email'),
-        accessCookie: (request.headers.get('cookie') || '').includes('CF_Authorization'),
-        // Public identifiers (not secrets), needed to pin TEAM_DOMAIN / POLICY_AUD.
-        ...tokenIds(request.headers.get('cf-access-jwt-assertion')),
-        ...diag,
-      }, 401);
-    }
     try {
+      const open = await publicApi(request, env, url);
+      if (open) return open;
+      const email = await sessionEmail(request, env);
+      if (!email) return json({ error: 'Not signed in' }, 401);
       return await api(request, env, url, email);
     } catch (err) {
       console.error(err);
@@ -50,6 +45,39 @@ export default {
   },
 };
 
+// Routes that work without a session. Returns null for anything else.
+async function publicApi(request, env, url) {
+  const path = url.pathname;
+  const method = request.method;
+
+  if (path === '/api/config' && method === 'GET') {
+    return json({
+      appleServicesId: env.APPLE_SERVICES_ID || null,
+      googleClientId: env.GOOGLE_WEB_CLIENT_ID || null,
+      dev: !!env.DEV_EMAIL,
+    });
+  }
+
+  const provider = path.match(/^\/api\/auth\/(apple|google|dev)$/)?.[1];
+  if (provider && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const email = provider === 'dev'
+      ? env.DEV_EMAIL?.toLowerCase() || null
+      : await verifyIdToken(body.idToken, provider, env);
+    if (!email) return json({ error: 'Sign-in failed' }, 401);
+    const token = await createSession(env, email);
+    // The website keeps the session in an HttpOnly cookie; the app asks for the token itself.
+    return json({ email, ...(body.app ? { token } : {}) }, 200, { 'set-cookie': sessionCookie(token, url) });
+  }
+
+  if (path === '/api/auth/signout' && method === 'POST') {
+    await endSession(request, env);
+    return json({ ok: true }, 200, { 'set-cookie': sessionCookie(null, url) });
+  }
+
+  return null;
+}
+
 async function api(request, env, url, owner) {
   const parts = url.pathname.split('/').filter(Boolean); // ['api', kind, id?]
   const [, kind, id] = parts;
@@ -57,6 +85,21 @@ async function api(request, env, url, owner) {
   if (parts.length > 3 || (id !== undefined && !ID.test(id))) return json({ error: 'Not found' }, 404);
 
   if (kind === 'me' && !id && method === 'GET') return json({ email: owner });
+
+  if (kind === 'account' && !id && method === 'DELETE') {
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM puzzles WHERE owner = ?').bind(owner),
+      env.DB.prepare('DELETE FROM sessions WHERE owner = ?').bind(owner),
+    ]);
+    const prefix = `${encodeURIComponent(owner)}/`;
+    let cursor;
+    do {
+      const page = await env.PHOTOS.list({ prefix, cursor });
+      if (page.objects.length) await env.PHOTOS.delete(page.objects.map((o) => o.key));
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+    return json({ ok: true }, 200, { 'set-cookie': sessionCookie(null, url) });
+  }
 
   if (kind === 'puzzles' && !id && method === 'GET') {
     const { results } = await env.DB.prepare(
@@ -130,106 +173,9 @@ function photoKey(owner, id) {
   return `${encodeURIComponent(owner)}/${id}`;
 }
 
-function json(body, status = 200) {
+function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+    headers: { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers },
   });
-}
-
-// ---------- identity ----------
-
-// The email Cloudflare Access verified for this request, or null.
-async function signedInEmail(request, env, ctx, diag = {}) {
-  const token = request.headers.get('cf-access-jwt-assertion');
-  // Worker-level Access hands the identity to the Worker directly.
-  if (ctx.access) {
-    try {
-      const who = await ctx.access.getIdentity();
-      diag.identityFields = who ? Object.keys(who) : null;
-      const e = who?.email || who?.user?.email;
-      if (e) return String(e).toLowerCase();
-    } catch (err) {
-      diag.identityError = String(err?.message || err).slice(0, 200);
-      console.error('getIdentity failed', err);
-    }
-    // Fall back to the signed token Access attached, checked against this Worker's own
-    // Access audience and Cloudflare's published signing keys.
-    if (token && ctx.access.aud) {
-      const iss = peekIssuer(token);
-      diag.tokenIssuerOk = !!iss;
-      if (iss) {
-        const claims = await verifyAccessJwt(token, iss, ctx.access.aud);
-        diag.tokenVerified = !!claims;
-        if (claims?.email) return String(claims.email).toLowerCase();
-      }
-    }
-    // Access ran in front of this request (ctx.access is only set when it did), and it
-    // sets this header itself from the identity it verified.
-    const header = request.headers.get('cf-access-authenticated-user-email');
-    if (header && header.includes('@')) return header.trim().toLowerCase();
-  }
-  // Otherwise (hostname-level Access app), verify the signed token Access attaches.
-  // Needs TEAM_DOMAIN (https://<team>.cloudflareaccess.com) and POLICY_AUD set as vars.
-  if (token && env.TEAM_DOMAIN && env.POLICY_AUD) {
-    const claims = await verifyAccessJwt(token, env.TEAM_DOMAIN, env.POLICY_AUD);
-    if (claims?.email) return String(claims.email).toLowerCase();
-  }
-  return null;
-}
-
-// The team domain and application audience a token claims (unverified; display only).
-function tokenIds(token) {
-  try {
-    const { iss, aud } = JSON.parse(b64text(token.split('.')[1]));
-    return { tokenIssuer: iss, tokenAudience: aud };
-  } catch {
-    return {};
-  }
-}
-
-// The token's issuer, only if it is a Cloudflare Access team domain (signature is
-// checked afterwards against that team's keys).
-function peekIssuer(token) {
-  try {
-    const iss = JSON.parse(b64text(token.split('.')[1])).iss;
-    return /^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/.test(iss) ? iss : null;
-  } catch {
-    return null;
-  }
-}
-
-const jwksCache = new Map(); // team domain -> { keys, at }
-
-async function verifyAccessJwt(token, teamDomain, aud) {
-  try {
-    const [h, p, s] = token.split('.');
-    const header = JSON.parse(b64text(h));
-    const claims = JSON.parse(b64text(p));
-    const team = teamDomain.replace(/\/$/, '');
-    if (header.alg !== 'RS256' || claims.iss !== team) return null;
-    if (!(Array.isArray(claims.aud) ? claims.aud : [claims.aud]).includes(aud)) return null;
-    if (!claims.exp || claims.exp * 1000 < Date.now()) return null;
-    let cached = jwksCache.get(team);
-    if (!cached || Date.now() - cached.at > 3600_000) {
-      cached = { keys: (await (await fetch(`${team}/cdn-cgi/access/certs`)).json()).keys, at: Date.now() };
-      jwksCache.set(team, cached);
-    }
-    const jwk = cached.keys.find((k) => k.kid === header.kid);
-    if (!jwk) return null;
-    const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
-    const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64bytes(s), new TextEncoder().encode(`${h}.${p}`));
-    return ok ? claims : null;
-  } catch {
-    return null;
-  }
-}
-
-function b64bytes(s) {
-  const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4));
-  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
-}
-
-function b64text(s) {
-  return new TextDecoder().decode(b64bytes(s));
 }

@@ -1,4 +1,4 @@
-# Puzzle Table
+# Poozles
 
 Turn your own photos into jigsaw puzzles and solve them in the browser, on iPhone or Mac.
 
@@ -23,7 +23,7 @@ Turn your own photos into jigsaw puzzles and solve them in the browser, on iPhon
 ```
 npm install
 npm run db:local   # once: create the local database table
-npm run dev        # app + backend at http://localhost:8787 (signed in as dev@example.com)
+npm run dev        # app + backend at http://localhost:8787 ("Developer sign-in" button)
 npm test           # board-logic unit tests
 ```
 No build step: `public/` is plain HTML/CSS/ES modules. `npm run dev:static` serves just the
@@ -39,8 +39,10 @@ browser ──/api/*──► Worker (worker/index.js) ──► D1  (one row pe
    └── HTML/JS/CSS ─────┘  served as static assets
 ```
 
-- **Who you are** comes from Cloudflare Access in front of the Worker (email + one-time
-  code). The verified email is the owner key for everything stored.
+- **Who you are**: sign in with Apple or Google (`worker/auth.js`). The Worker checks the
+  provider's signed ID token and keeps a session (a random token, stored only as a hash in
+  D1). The verified email is the owner key for everything stored. Signing in is optional:
+  without it, puzzles stay on the device.
 - **Sync** (`public/js/sync.js`): saves upload ~2.5 s after the last move; the library and
   open puzzle pull newer copies when the app is opened, focused, or every 2 minutes.
 - **Conflicts** (same puzzle advanced on two devices): the most recent save wins; if the
@@ -53,18 +55,15 @@ browser ──/api/*──► Worker (worker/index.js) ──► D1  (one row pe
 in `worker/schema.sql`. Deploys run `npx wrangler deploy`, either from your computer or
 automatically from GitHub via Cloudflare Workers Builds.
 
-Live at https://puzzles.daniel-ryan312.workers.dev — every push to this branch redeploys it.
+Live at https://poozles.app. Every push to this branch redeploys it.
 
-### Sign-in (Cloudflare Access)
-- Worker → **Access** → protect **All traffic**; the policy uses the **Emails** selector
-  (exact addresses), not "Email domain".
-- Login method: **One-time PIN** (Zero Trust → Integrations → Identity providers), so people
-  without a Cloudflare account get an emailed code.
-- The Worker verifies each request's signed `Cf-Access-Jwt-Assertion` token against
-  `TEAM_DOMAIN` and `POLICY_AUD` in `wrangler.jsonc` (public identifiers: the Access team
-  domain and this app's audience tag). If the Access app is ever recreated, its audience tag
-  changes: open `/api/me`, which lists `tokenAudience` when sign-in fails, and update
-  `POLICY_AUD`.
+### Sign-in setup
+- Apple: App ID `app.poozles` and Services ID `app.poozles.web` (Sign in with Apple on,
+  domain `poozles.app`, return URL `https://poozles.app/`).
+- Google: a Web OAuth client with `https://poozles.app` and `http://localhost:8787` as
+  JavaScript origins.
+- The public IDs go in `vars` in `wrangler.jsonc`. For local development, `.dev.vars` holds
+  `DEV_EMAIL=dev@example.com`, which turns on the "Developer sign-in" button.
 
 ## Code map
 - `public/js/geometry.js`: grid sizing, seeded jigsaw cut, piece rendering
@@ -74,7 +73,7 @@ Live at https://puzzles.daniel-ryan312.workers.dev — every push to this branch
 - `public/js/textures.js`: procedural wood, felt and linen surfaces
 - `public/js/sync.js`: cloud sync with the Worker
 - `public/js/db.js`, `image.js`, `sound.js`: storage, photo prep, sound effects
-- `worker/index.js`: the Cloudflare Worker (API + static assets), `worker/schema.sql`: D1 table
+- `worker/index.js`: the Cloudflare Worker (API + static assets), `worker/auth.js`: sign-in and sessions, `worker/schema.sql`: D1 tables
 
 ## Roadmap
 - Play together live on one board (a Durable Object room per puzzle, WebSocket sync)

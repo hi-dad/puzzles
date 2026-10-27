@@ -6,9 +6,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Puzzles">
+  <meta name="apple-mobile-web-app-title" content="Poozles">
   <meta name="theme-color" content="#f6f1e7">
-  <title>Puzzle Table</title>
+  <title>Poozles</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
@@ -30,10 +30,11 @@
       </div>
       <button id="cloud-status" class="cloud-pill" type="button" hidden></button>
       <p id="greeting" class="eyebrow"></p>
-      <h1>Puzzle Table</h1>
+      <h1>Poozles</h1>
       <p class="hero-sub">Turn any photo into a jigsaw.</p>
       <div id="stats" class="stats"></div>
       <a id="hero-cta" class="primary hero-cta" href="#/new" hidden>Make your first puzzle</a>
+      <button id="hero-signin" class="link-btn hero-signin" type="button" hidden>Played before? Sign in to bring your puzzles back</button>
     </header>
     <section id="continue" class="continue" hidden></section>
     <h2 id="library-heading" class="section-title" hidden>Your puzzles</h2>
@@ -201,6 +202,35 @@
       </div>
     </div>
   </section>
+
+  <!-- Sign in -->
+  <div id="signin" class="conflict" hidden>
+    <div class="conflict-card signin-card">
+      <strong>Sign in to Poozles</strong>
+      <p>Keep your puzzles safe and on all your devices.</p>
+      <div class="signin-buttons">
+        <div id="appleid-signin" class="apple-btn" data-color="black" data-border="false" data-type="sign in" data-border-radius="50" data-width="280" data-height="44" hidden></div>
+        <div id="google-btn"></div>
+        <button id="signin-dev" class="secondary" type="button" hidden>Developer sign-in</button>
+      </div>
+      <p class="signin-note">Played before with Apple? Choose “Share My Email” so your puzzles come back.</p>
+      <p id="signin-error" class="error"></p>
+      <button id="signin-cancel" class="link-btn" type="button">Not now</button>
+    </div>
+  </div>
+
+  <!-- Account -->
+  <div id="account" class="conflict" hidden>
+    <div class="conflict-card">
+      <strong>Your account</strong>
+      <p>Signed in as <span id="account-email"></span></p>
+      <div class="conflict-actions">
+        <button id="account-close" class="secondary" type="button">Close</button>
+        <button id="account-signout" class="primary" type="button">Sign out</button>
+      </div>
+      <button id="account-delete" class="link-btn danger" type="button">Delete account</button>
+    </div>
+  </div>
 
   <script type="module" src="js/main.js"></script>
 </body>

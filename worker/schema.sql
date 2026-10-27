@@ -9,3 +9,13 @@ CREATE TABLE IF NOT EXISTS puzzles (
   data       TEXT    NOT NULL DEFAULT '',
   PRIMARY KEY (owner, id)
 );
+
+-- One row per signed-in device. Only a hash of the session token is stored, so a copy of
+-- this table can't be used to sign in.
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT    PRIMARY KEY,
+  owner      TEXT    NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_owner ON sessions (owner);

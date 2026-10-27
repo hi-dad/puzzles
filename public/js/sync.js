@@ -1,4 +1,4 @@
-// Cloud sync with the Puzzle Table Worker. Every device keeps its own full copy in
+// Cloud sync with the Poozles Worker. Every device keeps its own full copy in
 // IndexedDB (so play is instant and works offline); this module copies changes up to the
 // Worker and pulls newer copies down. One person, several devices: for each puzzle the
 // most recently saved copy wins.
@@ -20,12 +20,11 @@ class NoBackend extends Error {}
 async function api(path, opts = {}) {
   let res;
   try {
-    res = await fetch(path, { credentials: 'same-origin', redirect: 'manual', ...opts });
+    res = await fetch(path, { credentials: 'same-origin', ...opts });
   } catch {
     throw new TypeError('offline');
   }
-  // An expired Access session redirects to the login page instead of answering.
-  if (res.type === 'opaqueredirect' || res.status === 401 || res.status === 403) throw new AuthError();
+  if (res.status === 401 || res.status === 403) throw new AuthError();
   const type = res.headers.get('content-type') || '';
   if (res.status === 404 && !type.includes('json')) throw new NoBackend();
   return res;
@@ -35,6 +34,9 @@ function setStatus(s) {
   status = s;
   for (const fn of listeners) fn(s);
 }
+
+// Signed out or no backend: keep everything on this device and don't try the network.
+const idle = () => status === 'local' || status === 'signed-out';
 
 function fail(err) {
   if (err instanceof AuthError) setStatus('signed-out');
@@ -56,7 +58,7 @@ export const cloud = {
     return email;
   },
   get on() {
-    return status !== 'local' && status !== 'checking';
+    return !idle() && status !== 'checking';
   },
   onStatus(fn) {
     listeners.add(fn);
@@ -79,7 +81,7 @@ export const cloud = {
   // never overwritten underneath the player; instead `onConflict(id)` is called.
   // Returns true if anything local changed (so the library can re-render).
   async syncAll({ openId = null, onConflict } = {}) {
-    if (status === 'local') return false;
+    if (idle()) return false;
     let changed = false;
     try {
       const res = await api('/api/puzzles');
@@ -132,7 +134,7 @@ export const cloud = {
 
   // Upload a puzzle shortly after it changes (coalesces rapid saves).
   queuePush(id) {
-    if (status === 'local') return;
+    if (idle()) return;
     clearTimeout(pushTimers.get(id));
     pushTimers.set(id, setTimeout(() => this.pushNow(id), PUSH_DELAY));
   },
@@ -140,7 +142,7 @@ export const cloud = {
   async pushNow(id) {
     clearTimeout(pushTimers.get(id));
     pushTimers.delete(id);
-    if (status === 'local') return;
+    if (idle()) return;
     try {
       setStatus('saving');
       await push(id);
@@ -158,12 +160,50 @@ export const cloud = {
   async remove(id) {
     clearTimeout(pushTimers.get(id));
     pushTimers.delete(id);
-    if (status === 'local') return;
+    if (idle()) return;
     try {
       await api(`/api/puzzles/${encodeURIComponent(id)}`, { method: 'DELETE' });
     } catch (err) {
       fail(err);
     }
+  },
+
+  // Which sign-in buttons this server offers.
+  async config() {
+    try {
+      const res = await api('/api/config');
+      return res.ok ? await res.json() : {};
+    } catch {
+      return {};
+    }
+  },
+
+  // Start a session with an ID token from Apple or Google ('dev' needs no token).
+  // Puzzles made on this device while signed out are uploaded to the account.
+  async signIn(provider, idToken) {
+    const res = await api(`/api/auth/${provider}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ idToken }),
+    }).catch(() => null);
+    if (!res?.ok) return false;
+    email = (await res.json()).email;
+    setStatus('synced');
+    return true;
+  },
+
+  // Sign out (or delete the account), then forget this device's copy so the next person
+  // to sign in here doesn't inherit it.
+  async signOut({ deleteAccount = false } = {}) {
+    await Promise.all([...pushTimers.keys()].map((id) => this.pushNow(id)));
+    const res = await api(deleteAccount ? '/api/account' : '/api/auth/signout', {
+      method: deleteAccount ? 'DELETE' : 'POST',
+    }).catch(() => null);
+    if (deleteAccount && !res?.ok) return false;
+    await db.clear();
+    email = null;
+    setStatus('signed-out');
+    return true;
   },
 
   // A puzzle photo this device is missing.

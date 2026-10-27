@@ -421,7 +421,7 @@ const CLOUD_TEXT = {
   synced: '☁︎ Saved',
   saving: 'Saving…',
   offline: 'Offline · saved on this device',
-  'signed-out': 'Signed out · tap to sign in',
+  'signed-out': 'Sign in to sync',
 };
 
 function showCloud(s) {
@@ -433,6 +433,67 @@ function showCloud(s) {
   pill.dataset.state = s;
   mini.textContent = text ? ` · ${s === 'synced' ? '☁︎' : text}` : '';
   mini.title = text || '';
+  $('#hero-signin').hidden = s !== 'signed-out';
+}
+
+// ---------------- sign-in ----------------
+
+let signinReady = null;
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => document.head.append(el('script', { src, async: true, onload: resolve, onerror: reject })));
+}
+
+// Load Apple's and Google's sign-in buttons the first time the sheet opens.
+async function prepareSignIn() {
+  const cfg = await cloud.config();
+  const tasks = [];
+  if (cfg.appleServicesId) {
+    tasks.push(loadScript('https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js').then(() => {
+      $('#appleid-signin').hidden = false;
+      AppleID.auth.init({ clientId: cfg.appleServicesId, scope: 'name email', redirectURI: `${location.origin}/`, usePopup: true });
+    }));
+  }
+  if (cfg.googleClientId) {
+    tasks.push(loadScript('https://accounts.google.com/gsi/client').then(() => {
+      google.accounts.id.initialize({ client_id: cfg.googleClientId, callback: (r) => finishSignIn('google', r.credential) });
+      google.accounts.id.renderButton($('#google-btn'), { theme: 'outline', size: 'large', shape: 'pill', text: 'signin_with', width: 280 });
+    }));
+  }
+  $('#signin-dev').hidden = !cfg.dev;
+  await Promise.allSettled(tasks);
+  if (!cfg.appleServicesId && !cfg.googleClientId && !cfg.dev) $('#signin-error').textContent = 'Sign-in isn’t available right now.';
+}
+
+function openSignIn() {
+  signinReady ??= prepareSignIn();
+  $('#signin-error').textContent = '';
+  $('#signin').hidden = false;
+}
+
+async function finishSignIn(provider, idToken) {
+  $('#signin-error').textContent = '';
+  if (!(await cloud.signIn(provider, idToken))) {
+    $('#signin-error').textContent = 'Sign-in didn’t work. Please try again.';
+    return;
+  }
+  $('#signin').hidden = true;
+  syncNow();
+}
+
+function openAccount() {
+  $('#account-email').textContent = cloud.email;
+  $('#account').hidden = false;
+}
+
+async function signOut(deleteAccount) {
+  if (deleteAccount && !confirm('Delete your Poozles account? Your puzzles and photos will be erased from every device. This can’t be undone.')) return;
+  if (!(await cloud.signOut({ deleteAccount }))) {
+    alert('Couldn’t delete your account right now. Please try again when you’re online.');
+    return;
+  }
+  location.hash = '#/';
+  location.reload();
 }
 
 function syncToggles() {
@@ -590,7 +651,20 @@ function wire() {
   setInterval(() => !document.hidden && syncNow(), 120_000);
   $('#conflict-load').addEventListener('click', () => resolveConflict(true));
   $('#conflict-keep').addEventListener('click', () => resolveConflict(false));
-  $('#cloud-status').addEventListener('click', () => cloud.status === 'signed-out' && location.reload());
+  $('#cloud-status').addEventListener('click', () => {
+    if (cloud.status === 'signed-out') openSignIn();
+    else if (cloud.email) openAccount();
+  });
+  $('#hero-signin').addEventListener('click', openSignIn);
+  $('#signin-cancel').addEventListener('click', () => ($('#signin').hidden = true));
+  $('#signin-dev').addEventListener('click', () => finishSignIn('dev'));
+  document.addEventListener('AppleIDSignInOnSuccess', (e) => finishSignIn('apple', e.detail.authorization.id_token));
+  document.addEventListener('AppleIDSignInOnFailure', (e) => {
+    if (e.detail?.error !== 'popup_closed_by_user') $('#signin-error').textContent = 'Apple sign-in didn’t work. Please try again.';
+  });
+  $('#account-close').addEventListener('click', () => ($('#account').hidden = true));
+  $('#account-signout').addEventListener('click', () => signOut(false));
+  $('#account-delete').addEventListener('click', () => signOut(true));
   cloud.onConflict = onConflict;
   cloud.onLocalChange = () => !screens.library.hidden && renderLibrary();
   cloud.onStatus(showCloud);
