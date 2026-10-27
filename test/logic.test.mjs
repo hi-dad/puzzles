@@ -76,3 +76,39 @@ test('chooseGrid gets close to the target with near-square pieces', () => {
 test('shuffled is a permutation', () => {
   assert.deepEqual(shuffled(50).sort((a, b) => a - b), Array.from({ length: 50 }, (_, i) => i));
 });
+
+import { applyPatch } from '../public/js/logic.js';
+
+test('a patch replaces the groups its pieces were in', () => {
+  const state = { groups: [{ x: 5, y: 5, r: 0, locked: false, members: [0] }, { x: 9, y: 9, r: 0, locked: false, members: [1] }], tray: [2, 3] };
+  applyPatch(state, { groups: [{ x: 9, y: 9, r: 0, locked: false, members: [1, 0] }] });
+  assert.equal(state.groups.length, 1);
+  assert.deepEqual(state.groups[0].members.sort(), [0, 1]);
+  assert.deepEqual(state.tray, [2, 3]);
+});
+
+test('a patch moves pieces out of and back into the tray', () => {
+  const state = { groups: [{ x: 1, y: 1, r: 2, locked: false, members: [4] }], tray: [2, 3], rot: [0, 0, 0, 0, 0] };
+  applyPatch(state, { groups: [{ x: 7, y: 7, r: 0, members: [2] }], trayRemove: [2], trayAdd: [{ i: 4, r: 2 }] });
+  assert.deepEqual(state.tray, [4, 3]);
+  assert.equal(state.rot[4], 2);
+  assert.deepEqual(state.groups.map((g) => g.members), [[2]]);
+});
+
+test('patches from two players touching different pieces both survive', () => {
+  const state = { groups: [], tray: [0, 1, 2] };
+  applyPatch(state, { groups: [{ x: 1, y: 1, members: [0] }], trayRemove: [0] });
+  applyPatch(state, { groups: [{ x: 2, y: 2, members: [2] }], trayRemove: [2] });
+  assert.deepEqual(state.tray, [1]);
+  assert.equal(state.groups.length, 2);
+});
+
+test('settle never joins a group another player is holding', () => {
+  const a = { x: 100, y: 50, locked: false, members: [0] };
+  const b = { x: 101, y: 50, locked: false, members: [1] };
+  const groupOf = [a, b, null, null];
+  const groups = [a, b];
+  const r = settle(a, { groups, groupOf, cols: 2, rows: 2, tol: 5, busy: (o) => o === b });
+  assert.equal(r.joined, 0);
+  assert.equal(groups.length, 2);
+});

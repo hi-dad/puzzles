@@ -48,6 +48,8 @@
     <div id="library-head" class="lib-head" hidden>
       <div class="lib-title-row">
         <h2>Your puzzles</h2>
+        <span class="spacer"></span>
+        <button id="join-code" class="link-btn join-link" type="button">Join with a code</button>
         <a class="new-btn" href="#/new">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
           <span class="new-long">New from a photo</span><span class="new-short">New puzzle</span>
@@ -119,6 +121,7 @@
         <div id="play-title" class="play-title"></div>
         <div class="play-sub"><span id="play-progress"></span> pieces · <span id="play-time"></span><span id="play-cloud" class="cloud-mini"></span></div>
       </div>
+      <div id="play-players" class="players" hidden></div>
       <button id="btn-ghost" class="icon-btn toggle" type="button" title="Show picture on the board" aria-label="Show picture on the board">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 8"/></svg>
       </button>
@@ -147,6 +150,10 @@
         <button id="btn-tray-rows" class="menu-item" type="button">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="6" rx="1.5"/><rect x="3" y="13" width="18" height="6" rx="1.5"/></svg>
           <span>Two-row tray</span>
+        </button>
+        <button id="btn-share" class="menu-item on" type="button">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.9-3.6 3.4-5.5 6.5-5.5s5.6 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 010 7M18.5 14.8c1.5.8 2.6 2.5 3 5.2"/></svg>
+          <span>Play together</span>
         </button>
         <button id="btn-sound" class="menu-item" type="button">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7"/></svg>
@@ -235,7 +242,7 @@
   <div id="signin" class="conflict" hidden>
     <div class="conflict-card signin-card">
       <strong>Sign in to Poozles</strong>
-      <p>Keep your puzzles safe and on all your devices.</p>
+      <p id="signin-reason">Keep your puzzles safe and on all your devices.</p>
       <div class="signin-buttons">
         <div id="appleid-signin" class="apple-btn" data-color="black" data-border="false" data-type="sign in" data-border-radius="50" data-width="280" data-height="44" hidden></div>
         <div id="google-btn"></div>
@@ -244,6 +251,44 @@
       <p class="signin-note">Played before with Apple? Choose “Share My Email” so your puzzles come back.</p>
       <p id="signin-error" class="error"></p>
       <button id="signin-cancel" class="link-btn" type="button">Not now</button>
+    </div>
+  </div>
+
+  <!-- A message (errors and the like) -->
+  <div id="notice" class="conflict" hidden>
+    <div class="conflict-card notice-card">
+      <strong id="notice-title"></strong>
+      <p id="notice-text"></p>
+      <button id="notice-ok" class="primary" type="button">OK</button>
+    </div>
+  </div>
+
+  <!-- Join with a code -->
+  <div id="joincode" class="conflict" hidden>
+    <form id="joincode-form" class="conflict-card notice-card">
+      <strong>Join a puzzle</strong>
+      <p>Enter the 6-letter code from your invite.</p>
+      <input id="joincode-input" class="text code-input" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="K7PQ2M">
+      <p id="joincode-error" class="error"></p>
+      <div class="conflict-actions">
+        <button id="joincode-cancel" class="secondary" type="button">Cancel</button>
+        <button class="primary" type="submit">Join</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Play together -->
+  <div id="share" class="conflict" hidden>
+    <div class="conflict-card share-card">
+      <strong>Play together</strong>
+      <p>Send this link to up to 3 people. They'll sign in and join, and the puzzle shows up in their library too.</p>
+      <div id="share-link" class="share-link"></div>
+      <div class="share-code-row">or use the code <span id="share-code" class="share-code"></span></div>
+      <div class="conflict-actions">
+        <button id="share-copy" class="secondary" type="button">Copy link</button>
+        <button id="share-native" class="primary" type="button">Share…</button>
+      </div>
+      <button id="share-close" class="link-btn" type="button">Done</button>
     </div>
   </div>
 

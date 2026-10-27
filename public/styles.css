@@ -210,7 +210,11 @@ a { color: inherit; text-decoration: none; }
   flex-direction: column;
   gap: 14px;
 }
-.lib-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.join-link { font-size: 15px; padding: 6px 4px; white-space: nowrap; }
+.notice-card { text-align: center; }
+.notice-card .primary { min-width: 120px; min-height: 46px; }
+.code-input { text-align: center; font: 700 22px/1 ui-monospace, Menlo, monospace; letter-spacing: 0.2em; text-transform: uppercase; }
+.lib-title-row { display: flex; align-items: center; gap: 12px; }
 .new-btn {
   display: inline-flex;
   align-items: center;
@@ -286,6 +290,7 @@ a { color: inherit; text-decoration: none; }
   font-size: 12px;
   font-weight: 700;
 }
+.badge.shared { left: 8px; right: auto; background: #fff; color: var(--accent-deep); }
 .card-body { padding: 6px 30px 0 2px; }
 .card-title {
   font-weight: 650;
@@ -537,6 +542,19 @@ a { color: inherit; text-decoration: none; }
 }
 .play-bar .icon-btn { width: 40px; height: 40px; background: #fff; border: 1.5px solid #f6c7b3; border-radius: 11px; color: var(--accent); }
 .play-bar .icon-btn:first-child { border: 0; color: var(--ink); }
+.players { display: flex; flex: none; margin-right: 4px; }
+.player {
+  width: 30px;
+  height: 30px;
+  margin-left: -6px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
 .play-line { height: 4px; background: #f1e6df; flex: none; }
 .play-line i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s ease; }
 
@@ -677,6 +695,19 @@ a { color: inherit; text-decoration: none; }
 #signin-dev { width: 280px; min-height: 44px; }
 .signin-note { font-size: 13px; margin-top: 14px !important; margin-bottom: 0 !important; }
 .signin-card .error { min-height: 0; }
+.share-card { text-align: center; }
+.share-link {
+  margin: 4px 0 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--peach);
+  color: var(--ink);
+  font-weight: 600;
+  word-break: break-all;
+  user-select: all;
+}
+.share-code-row { font-size: 14px; color: var(--muted); margin-bottom: 16px; }
+.share-code { font: 700 18px/1 ui-monospace, Menlo, monospace; letter-spacing: 0.12em; color: var(--ink); margin-left: 4px; }
 .link-btn.danger { display: block; margin: 10px auto 0; color: #a33b28; font-size: 14px; }
 
 /* ---------- all-pieces view ---------- */

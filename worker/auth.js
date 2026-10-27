@@ -23,6 +23,12 @@ const SESSION_MS = 365 * 24 * 3600_000;
 
 // The verified email in a provider's ID token, or null.
 export async function verifyIdToken(token, provider, env, now = Date.now()) {
+  return (await verifySignIn(token, provider, env, now))?.email ?? null;
+}
+
+// { email, name } from a provider's ID token, or null. Google includes the person's name;
+// Apple never puts it in the token (the app passes it along on the first sign-in instead).
+export async function verifySignIn(token, provider, env, now = Date.now()) {
   const p = PROVIDERS[provider];
   if (!p || typeof token !== 'string') return null;
   const allowed = p.audiences(env).filter(Boolean);
@@ -33,19 +39,41 @@ export async function verifyIdToken(token, provider, env, now = Date.now()) {
   if (!aud.some((a) => allowed.includes(a))) return null;
   // Google sends email_verified as a boolean, Apple sometimes as the string "true".
   if (!claims.email || String(claims.email_verified) !== 'true') return null;
-  return String(claims.email).toLowerCase();
+  return { email: String(claims.email).toLowerCase(), name: cleanName(claims.given_name || claims.name) };
+}
+
+// A first name fit to show other players, or null.
+export function cleanName(name) {
+  const first = String(name || '').trim().split(/\s+/)[0] || '';
+  return first ? first.slice(0, 24) : null;
+}
+
+// Remember a player's display name (other players see it when playing together).
+export async function saveName(env, email, name) {
+  if (!name) return;
+  await ensureSessions(env);
+  await env.DB.prepare(
+    `INSERT INTO users (email, name) VALUES (?, ?) ON CONFLICT (email) DO UPDATE SET name = excluded.name`,
+  ).bind(email, name).run();
+}
+
+export async function nameOf(env, email) {
+  await ensureSessions(env);
+  const row = await env.DB.prepare('SELECT name FROM users WHERE email = ?').bind(email).first();
+  return row?.name || 'Player';
 }
 
 // ---------- sessions ----------
 
-// The live database predates the sessions table, so it is created on first use (same as
-// worker/schema.sql) and deploys need no manual migration.
+// The live database predates the sessions and users tables, so they're created on first
+// use (same as worker/schema.sql) and deploys need no manual migration.
 let sessionsReady = null;
 function ensureSessions(env) {
   sessionsReady ??= env.DB.batch([
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS sessions (
       token_hash TEXT PRIMARY KEY, owner TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)`),
     env.DB.prepare('CREATE INDEX IF NOT EXISTS sessions_owner ON sessions (owner)'),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, name TEXT)'),
   ]).catch((err) => {
     sessionsReady = null;
     throw err;

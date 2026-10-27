@@ -15,13 +15,22 @@
 //   DELETE /api/puzzles/:id       -> delete (leaves a tombstone so other devices follow)
 //   GET    /api/images/:id        -> the puzzle photo (JPEG, from R2)
 //   PUT    /api/images/:id        -> upload the puzzle photo
+//   POST   /api/puzzles/:id/share -> start playing a puzzle together; returns { code }
+//   POST   /api/join/:code        -> join a shared puzzle; returns { id }
+//   GET    /api/rooms/:id         -> WebSocket into a shared puzzle's live room
+//
+// Shared puzzles appear in every player's list and are read/written through the same
+// routes; "deleting" one only removes that player (see share.js).
 //
 // Who is asking comes from a session (see auth.js); the verified email is the "owner" key
 // for everything stored here. Everything else (the HTML/JS/CSS in /public) is served as
 // static assets without running this code.
 
-import { verifyIdToken, createSession, sessionEmail, endSession, sessionCookie } from './auth.js';
+import { verifySignIn, createSession, sessionEmail, endSession, sessionCookie, saveName, cleanName } from './auth.js';
 import { isDowngrade } from '../public/js/format.js';
+import { sharedFor, sharedRecord, listShared, share, join, leave, leaveAll, sharedPhotoKey } from './share.js';
+import { nameOf } from './auth.js';
+export { PuzzleRoom } from './room.js';
 
 const ID = /^[A-Za-z0-9-]{8,64}$/;
 const MAX_RECORD = 1_500_000; // bytes of JSON per puzzle (1000 pieces ≈ 100 KB)
@@ -32,6 +41,9 @@ export default {
     const url = new URL(request.url);
     // The old workers.dev address forwards to the real one.
     if (url.hostname.endsWith('.workers.dev')) return Response.redirect(`https://poozles.app${url.pathname}${url.search}`, 301);
+    // Invite links (/join/CODE) open the app, which picks the code up from ?join=.
+    const invite = url.pathname.match(/^\/join\/([A-Za-z0-9]{6})\/?$/);
+    if (invite) return Response.redirect(`${url.origin}/?join=${invite[1].toUpperCase()}`, 302);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
     try {
       const open = await publicApi(request, env, url);
@@ -62,10 +74,17 @@ async function publicApi(request, env, url) {
   const provider = path.match(/^\/api\/auth\/(apple|google|dev)$/)?.[1];
   if (provider && method === 'POST') {
     const body = await request.json().catch(() => ({}));
-    const email = provider === 'dev'
-      ? env.DEV_EMAIL?.toLowerCase() || null
-      : await verifyIdToken(body.idToken, provider, env);
-    if (!email) return json({ error: 'Sign-in failed' }, 401);
+    // Local development only: any email (to test playing together as two people).
+    const who = provider === 'dev'
+      ? env.DEV_EMAIL && {
+        email: String(body.email || (cleanName(body.name) ? `${cleanName(body.name)}@example.com` : env.DEV_EMAIL)).toLowerCase(),
+        name: cleanName(body.name) || 'Dev',
+      }
+      : await verifySignIn(body.idToken, provider, env);
+    if (!who) return json({ error: 'Sign-in failed' }, 401);
+    const { email } = who;
+    // Apple only shares the name on someone's very first sign-in, from the browser/app.
+    await saveName(env, email, who.name || (provider === 'apple' ? cleanName(body.name) : null));
     const token = await createSession(env, email);
     // The website keeps the session in an HttpOnly cookie; the app asks for the token itself.
     return json({ email, ...(body.app ? { token } : {}) }, 200, { 'set-cookie': sessionCookie(token, url) });
@@ -80,14 +99,37 @@ async function publicApi(request, env, url) {
 }
 
 async function api(request, env, url, owner) {
-  const parts = url.pathname.split('/').filter(Boolean); // ['api', kind, id?]
-  const [, kind, id] = parts;
+  const parts = url.pathname.split('/').filter(Boolean); // ['api', kind, id?, action?]
+  const [, kind, id, action] = parts;
   const method = request.method;
-  if (parts.length > 3 || (id !== undefined && !ID.test(id))) return json({ error: 'Not found' }, 404);
+  if (parts.length > 4 || (id !== undefined && kind !== 'join' && !ID.test(id))) return json({ error: 'Not found' }, 404);
+  if (action !== undefined && !(kind === 'puzzles' && action === 'share')) return json({ error: 'Not found' }, 404);
 
   if (kind === 'me' && !id && method === 'GET') return json({ email: owner });
 
+  if (kind === 'join' && id && method === 'POST') {
+    const r = await join(env, owner, id);
+    return r.id ? json({ id: r.id }) : json({ error: r.error }, r.status);
+  }
+
+  if (kind === 'puzzles' && action === 'share' && method === 'POST') {
+    const r = await share(env, owner, id);
+    return r ? json(r) : json({ error: 'That puzzle hasn’t finished saving to the cloud yet' }, 409);
+  }
+
+  if (kind === 'rooms' && id && method === 'GET') {
+    if (request.headers.get('upgrade') !== 'websocket') return json({ error: 'Expected a WebSocket' }, 426);
+    if (!(await sharedFor(env, id, owner))) return json({ error: 'Not found' }, 404);
+    const room = env.ROOMS.get(env.ROOMS.idFromName(id));
+    const headers = new Headers(request.headers);
+    headers.set('x-puzzle', id);
+    headers.set('x-member', owner);
+    headers.set('x-name', encodeURIComponent(await nameOf(env, owner)));
+    return room.fetch(new Request(request.url, { headers }));
+  }
+
   if (kind === 'account' && !id && method === 'DELETE') {
+    await leaveAll(env, owner);
     await env.DB.batch([
       env.DB.prepare('DELETE FROM puzzles WHERE owner = ?').bind(owner),
       env.DB.prepare('DELETE FROM sessions WHERE owner = ?').bind(owner),
@@ -106,10 +148,21 @@ async function api(request, env, url, owner) {
     const { results } = await env.DB.prepare(
       'SELECT id, updated_at AS updatedAt, deleted FROM puzzles WHERE owner = ?',
     ).bind(owner).all();
-    return json(results.map((r) => ({ ...r, deleted: !!r.deleted })));
+    return json([...results.map((r) => ({ ...r, deleted: !!r.deleted })), ...(await listShared(env, owner))]);
   }
 
   if (kind === 'puzzles' && id) {
+    const shared = await sharedFor(env, id, owner);
+    if (shared) {
+      if (method === 'GET') return json(sharedRecord(shared));
+      // The live room saves shared puzzles; players' own uploads are ignored.
+      if (method === 'PUT') return json({ ok: true, updatedAt: shared.updated_at });
+      if (method === 'DELETE') {
+        await leave(env, owner, id);
+        return json({ ok: true });
+      }
+    }
+
     const row = await env.DB.prepare('SELECT updated_at, deleted, data FROM puzzles WHERE owner = ? AND id = ?')
       .bind(owner, id).first();
 
@@ -151,7 +204,9 @@ async function api(request, env, url, owner) {
   }
 
   if (kind === 'images' && id) {
-    const key = photoKey(owner, id);
+    const shared = await sharedFor(env, id, owner);
+    if (shared && method === 'PUT') return json({ ok: true });
+    const key = shared ? sharedPhotoKey(id) : photoKey(owner, id);
     if (method === 'GET') {
       const obj = await env.PHOTOS.get(key);
       if (!obj) return json({ error: 'Not found' }, 404);

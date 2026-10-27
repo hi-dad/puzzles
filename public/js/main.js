@@ -4,6 +4,7 @@ import { preparePhoto, loadBlobImage, puzzleImage } from './image.js';
 import { Cut, chooseGrid } from './geometry.js';
 import { shuffled } from './logic.js';
 import { FORMAT_VERSION, canOpen } from './format.js';
+import { Room } from './room.js';
 import { Game, BACKGROUNDS, MATS, TRAYS, DEFAULT_BG } from './game.js';
 import { swatchURL, matSwatchURL } from './textures.js';
 import { PieceGrid } from './piecegrid.js';
@@ -109,7 +110,10 @@ async function renderLibrary() {
     const del = el('button', { className: 'card-del', title: 'Delete puzzle', ariaLabel: 'Delete puzzle', innerHTML: ICONS.trash });
     del.addEventListener('click', async (e) => {
       e.preventDefault();
-      if (!confirm(`Delete “${rec.name}”? This can’t be undone.`)) return;
+      const ask = rec.shared
+        ? `Remove “${rec.name}” from your puzzles? The others can keep playing it.`
+        : `Delete “${rec.name}”? This can’t be undone.`;
+      if (!confirm(ask)) return;
       await db.remove(rec.id);
       cloud.remove(rec.id);
       renderLibrary();
@@ -117,7 +121,8 @@ async function renderLibrary() {
     const card = el('a', { className: 'card', href: `#/play/${encodeURIComponent(rec.id)}` },
       el('div', { className: 'card-img' },
         el('img', { src: rec.thumb, alt: '' }),
-        rec.done ? el('span', { className: 'badge done', textContent: '✓ Finished' }) : null),
+        rec.done ? el('span', { className: 'badge done', textContent: '✓ Finished' }) : null,
+        rec.shared ? el('span', { className: 'badge shared', textContent: 'Shared' }) : null),
       rec.done ? null : el('div', { className: 'progress' }, el('i', { style: `width:${pct}%` })),
       el('div', { className: 'card-body' },
         el('div', { className: 'card-title', textContent: rec.name }),
@@ -298,6 +303,119 @@ let dirty = false;
 let lastActive = 0;
 const IDLE_MS = 120_000;
 
+// ---------------- playing together ----------------
+
+let room = null;
+let pendingJoin = null; // invite code from a /join/CODE link, used once signed in
+
+function connectRoom(id) {
+  let first = true;
+  room = new Room(id, {
+    init(msg) {
+      if (!game || rec?.id !== id) return;
+      game.remote.clear();
+      for (const h of msg.holds) if (h.pieces.length) game.remoteHold(h.pid, h.name, h.color, h.pieces);
+      game.loadState(msg.state);
+      rec.elapsed = Math.max(rec.elapsed || 0, msg.state.elapsed || 0);
+      Object.assign(rec, game.serialize());
+      showPlayers(msg.players);
+      if (first) {
+        first = false;
+        $('#play-loading').hidden = true;
+        syncToggles();
+        lastTick = performance.now();
+        tick = setInterval(onTick, 1000);
+      }
+      updateHud();
+    },
+    players: (msg) => showPlayers(msg.players),
+    hold: (msg) => game?.remoteHold(msg.pid, msg.name, msg.color, msg.pieces),
+    release: (msg) => game?.remoteRelease(msg.pid),
+    deny: (msg) => game?.denyGrab(msg.pieces),
+    drag: (msg) => game?.remoteDrag(msg.groups),
+    patch(msg) {
+      if (!game) return;
+      const moved = [...(game.remote.get(msg.pid)?.pieces || [])];
+      game.remoteRelease(msg.pid);
+      game.applyRemote(msg.patch, moved);
+      if (Number.isFinite(msg.elapsed)) rec.elapsed = Math.max(rec.elapsed, msg.elapsed);
+    },
+    status(s) {
+      $('#play-cloud').textContent = s === 'reconnecting' ? ' · Reconnecting…' : '';
+    },
+    gone() {
+      location.hash = '#/';
+      notice('You’re not in this puzzle any more', 'It was removed from your puzzles, maybe on another device.');
+      syncNow();
+    },
+  });
+}
+
+// Faces of everyone playing right now (only shown on shared puzzles).
+function showPlayers(players) {
+  const wrap = $('#play-players');
+  wrap.replaceChildren(...players.map((p) => el('span', {
+    className: 'player', title: p.name, textContent: (p.name || '?')[0].toUpperCase(), style: `background:${p.color}`,
+  })));
+  wrap.hidden = players.length === 0;
+}
+
+// "Play together": share this puzzle (first time) and show its invite link and code.
+async function openShare() {
+  closeMenu();
+  if (!rec) return;
+  if (!cloud.email) {
+    openSignIn('Sign in to play this puzzle with others.');
+    return;
+  }
+  let code = rec.shared?.code;
+  if (!code) {
+    await saveNow();
+    await cloud.pushNow(rec.id); // the room needs the latest board and the photo
+    const r = await cloud.share(rec.id);
+    if (!r.ok) {
+      notice('Couldn’t share yet', r.error || 'Please try again in a moment.');
+      return;
+    }
+    code = r.code;
+    const id = rec.id;
+    await cloud.pull(id);
+    await closeGame();
+    await openGame(id); // reopen as a shared puzzle, connected to its room
+  }
+  const link = `${location.origin}/join/${code}`;
+  $('#share-code').textContent = code;
+  $('#share-link').textContent = link.replace(/^https?:\/\//, '');
+  $('#share-native').hidden = !navigator.share;
+  $('#share').hidden = false;
+  $('#share').dataset.link = link;
+}
+
+// A message in the app's own style (in place of the browser's alert box).
+function notice(title, text) {
+  $('#notice-title').textContent = title;
+  $('#notice-text').textContent = text;
+  $('#notice').hidden = false;
+}
+
+const JOIN_ERRORS = {
+  409: ['This puzzle is full', 'It already has 4 players, the most a puzzle can have.'],
+  404: ['Code not found', 'Double-check the 6 letters, or ask for the link again.'],
+  400: ['Code not found', 'Double-check the 6 letters, or ask for the link again.'],
+};
+
+// Returns an error [title, text] or null once joined (and the puzzle is opening).
+async function joinByCode(code) {
+  const r = await cloud.join(code);
+  if (!r.ok) {
+    const err = JOIN_ERRORS[r.status] || ['Couldn’t join', 'You might be offline. Please try again in a moment.'];
+    notice(...err);
+    return err;
+  }
+  await cloud.syncAll();
+  location.hash = `#/play/${encodeURIComponent(r.id)}`;
+}
+
 async function openGame(id) {
   if (game && rec?.id === id) return;
   await closeGame();
@@ -314,7 +432,14 @@ async function openGame(id) {
   if (!canOpen(rec)) {
     $('#play-loading').hidden = true;
     rec = null;
-    alert('This puzzle was saved by a newer version of Poozles. Reload the page (or update the app) to open it.');
+    notice('Update Poozles to open this', 'This puzzle was saved by a newer version of Poozles. Reload the page (or update the app) to open it.');
+    location.hash = '#/';
+    return;
+  }
+  if (rec.shared && !navigator.onLine) {
+    $('#play-loading').hidden = true;
+    rec = null;
+    notice('You’re offline', 'Shared puzzles need an internet connection. Your own puzzles still work offline.');
     location.hash = '#/';
     return;
   }
@@ -339,7 +464,17 @@ async function openGame(id) {
       saveNow();
       showComplete();
     },
+    ...(rec.shared ? {
+      onGrab: (pieces) => room?.hold(pieces),
+      onDrag: (groups) => room?.drag(groups),
+      onPatch: (patch) => room?.patch(patch, rec.elapsed),
+      onRelease: () => room?.release(),
+    } : {}),
   });
+  if (rec.shared) {
+    connectRoom(id);
+    return; // the board shows once the room has sent it (see connectRoom)
+  }
   $('#play-loading').hidden = true;
   syncToggles();
   updateHud();
@@ -350,6 +485,9 @@ async function openGame(id) {
 async function closeGame() {
   if (!game) return;
   clearInterval(tick);
+  room?.close();
+  room = null;
+  showPlayers([]);
   await saveNow();
   cloud.flush();
   cloud.openId = null;
@@ -399,7 +537,7 @@ async function saveNow() {
   rec.updatedAt = Date.now();
   try {
     await db.put(structuredClone(rec));
-    cloud.queuePush(rec.id);
+    if (!rec.shared) cloud.queuePush(rec.id); // the live room saves shared puzzles
   } catch (e) {
     console.warn('save failed', e);
   }
@@ -407,7 +545,7 @@ async function saveNow() {
 
 // Another device saved the open puzzle more recently.
 function onConflict(id) {
-  if (rec?.id === id) $('#conflict').hidden = false;
+  if (rec?.id === id && !rec.shared) $('#conflict').hidden = false;
 }
 
 async function resolveConflict(load) {
@@ -481,20 +619,26 @@ async function prepareSignIn() {
   if (!cfg.appleServicesId && !cfg.googleClientId && !cfg.dev) $('#signin-error').textContent = 'Sign-in isn’t available right now.';
 }
 
-function openSignIn() {
+function openSignIn(reason) {
   signinReady ??= prepareSignIn();
+  $('#signin-reason').textContent = reason || 'Keep your puzzles safe and on all your devices.';
   $('#signin-error').textContent = '';
   $('#signin').hidden = false;
 }
 
-async function finishSignIn(provider, idToken) {
+async function finishSignIn(provider, idToken, name) {
   $('#signin-error').textContent = '';
-  if (!(await cloud.signIn(provider, idToken))) {
+  if (!(await cloud.signIn(provider, idToken, name))) {
     $('#signin-error').textContent = 'Sign-in didn’t work. Please try again.';
     return;
   }
   $('#signin').hidden = true;
-  syncNow();
+  await syncNow();
+  if (pendingJoin) {
+    const code = pendingJoin;
+    pendingJoin = null;
+    joinByCode(code);
+  }
 }
 
 function openAccount() {
@@ -505,7 +649,7 @@ function openAccount() {
 async function signOut(deleteAccount) {
   if (deleteAccount && !confirm('Delete your Poozles account? Your puzzles and photos will be erased from every device. This can’t be undone.')) return;
   if (!(await cloud.signOut({ deleteAccount }))) {
-    alert('Couldn’t delete your account right now. Please try again when you’re online.');
+    notice('Couldn’t delete your account', 'Please try again when you’re online.');
     return;
   }
   location.hash = '#/';
@@ -699,12 +843,51 @@ function wire() {
   $('#hero-signin').addEventListener('click', openSignIn);
   $('#btn-account').addEventListener('click', () => (cloud.email ? openAccount() : openSignIn()));
   $('#signin-cancel').addEventListener('click', () => ($('#signin').hidden = true));
-  $('#signin-dev').addEventListener('click', () => finishSignIn('dev'));
-  document.addEventListener('AppleIDSignInOnSuccess', (e) => finishSignIn('apple', e.detail.authorization.id_token));
+  $('#signin-dev').addEventListener('click', async () => {
+    // Local development only: sign in as anyone, to try playing together in two browsers.
+    const name = prompt('Developer sign-in: play as (a first name)', 'Alice');
+    if (name) finishSignIn('dev', undefined, name.trim());
+  });
+  document.addEventListener('AppleIDSignInOnSuccess', (e) => finishSignIn('apple', e.detail.authorization.id_token, e.detail.user?.name?.firstName));
   document.addEventListener('AppleIDSignInOnFailure', (e) => {
     if (e.detail?.error !== 'popup_closed_by_user') $('#signin-error').textContent = 'Apple sign-in didn’t work. Please try again.';
   });
   $('#account-close').addEventListener('click', () => ($('#account').hidden = true));
+  $('#btn-share').addEventListener('click', openShare);
+  $('#share-close').addEventListener('click', () => ($('#share').hidden = true));
+  $('#share-copy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText($('#share').dataset.link);
+      $('#share-copy').textContent = 'Copied';
+      setTimeout(() => ($('#share-copy').textContent = 'Copy link'), 1500);
+    } catch {}
+  });
+  $('#share-native').addEventListener('click', () => {
+    navigator.share?.({ title: 'Play Poozles with me', url: $('#share').dataset.link }).catch(() => {});
+  });
+  $('#notice-ok').addEventListener('click', () => ($('#notice').hidden = true));
+  $('#join-code').addEventListener('click', () => {
+    $('#joincode-input').value = '';
+    $('#joincode-error').textContent = '';
+    $('#joincode').hidden = false;
+    $('#joincode-input').focus();
+  });
+  $('#joincode-cancel').addEventListener('click', () => ($('#joincode').hidden = true));
+  $('#joincode-input').addEventListener('input', () => ($('#joincode-error').textContent = ''));
+  $('#joincode-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const code = $('#joincode-input').value.trim().toUpperCase();
+    if (!/^[A-Z0-9]{6}$/.test(code)) {
+      $('#joincode-error').textContent = 'Codes are 6 letters and numbers.';
+      return;
+    }
+    $('#joincode').hidden = true;
+    if (cloud.email) joinByCode(code);
+    else {
+      pendingJoin = code;
+      openSignIn('Sign in to join the puzzle.');
+    }
+  });
   $('#account-signout').addEventListener('click', () => signOut(false));
   $('#account-delete').addEventListener('click', () => signOut(true));
   cloud.onConflict = onConflict;
@@ -718,6 +901,21 @@ function wire() {
 // Handy for debugging in the browser console.
 window.puzzle = () => game;
 
+// An invite link (/join/CODE, forwarded to /?join=CODE): remember the code, tidy the address.
+const invite = new URLSearchParams(location.search).get('join');
+if (invite) {
+  pendingJoin = invite.toUpperCase();
+  history.replaceState(null, '', '/#/');
+}
+
 wire();
 route();
-cloud.init().then(syncNow);
+cloud.init().then(async () => {
+  await syncNow();
+  if (!pendingJoin) return;
+  if (cloud.email) {
+    const code = pendingJoin;
+    pendingJoin = null;
+    joinByCode(code);
+  } else openSignIn('Sign in to join the puzzle.');
+});

@@ -19,3 +19,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS sessions_owner ON sessions (owner);
+
+-- Display names other players see when playing a puzzle together.
+CREATE TABLE IF NOT EXISTS users (
+  email TEXT PRIMARY KEY,
+  name  TEXT
+);

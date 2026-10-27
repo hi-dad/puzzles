@@ -26,7 +26,8 @@ export function shuffled(n, rnd = Math.random) {
 
 // Snap a dropped group into the frame and/or onto matching neighbours, repeatedly.
 // Mutates groups/groupOf. Returns what happened so the caller can play feedback.
-export function settle(g, { groups, groupOf, cols, rows, tol }) {
+// `busy(o)` marks groups another player is holding right now; they're never joined.
+export function settle(g, { groups, groupOf, cols, rows, tol, busy = () => false }) {
   let joined = 0, locked = false, again = true;
   while (again) {
     again = false;
@@ -39,7 +40,7 @@ export function settle(g, { groups, groupOf, cols, rows, tol }) {
     outer: for (const i of g.members) {
       for (const j of neighbors(i, cols, rows)) {
         const o = groupOf[j];
-        if (!o || o === g) continue;
+        if (!o || o === g || busy(o)) continue;
         if ((o.r || 0) === (g.r || 0) && Math.abs(o.x - g.x) < tol && Math.abs(o.y - g.y) < tol) {
           if (o.locked && !g.locked) locked = true;
           if (!g.locked) {
@@ -66,4 +67,30 @@ export function placedCount(groups) {
   let n = 0;
   for (const g of groups) if (g.locked) n += g.members.length;
   return n;
+}
+
+// ---------- playing together ----------
+//
+// Players send each other patches: the groups their move produced, plus pieces that
+// left or went back into the tray. Groups never overlap, and a piece someone is holding
+// can't be moved by anyone else, so applying a patch is just "replace whatever groups
+// those pieces were in". The live room and every player apply patches with this.
+//
+// state: { groups: [{ x, y, r, locked, members }], tray: [piece], rot?: [r per piece] }
+// patch: { groups?: [...], trayAdd?: [{ i, r }], trayRemove?: [piece] }
+export function applyPatch(state, patch) {
+  const touched = new Set();
+  for (const g of patch.groups || []) for (const i of g.members) touched.add(i);
+  for (const { i } of patch.trayAdd || []) touched.add(i);
+  for (const i of patch.trayRemove || []) touched.add(i);
+  state.groups = state.groups.filter((g) => !g.members.some((i) => touched.has(i)));
+  state.tray = state.tray.filter((i) => !touched.has(i));
+  for (const g of patch.groups || []) {
+    state.groups.push({ x: g.x, y: g.y, r: g.r || 0, locked: !!g.locked, members: [...g.members] });
+  }
+  for (const { i, r } of [...(patch.trayAdd || [])].reverse()) {
+    state.tray.unshift(i);
+    if (state.rot) state.rot[i] = r || 0;
+  }
+  return state;
 }

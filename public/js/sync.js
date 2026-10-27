@@ -184,11 +184,11 @@ export const cloud = {
 
   // Start a session with an ID token from Apple or Google ('dev' needs no token).
   // Puzzles made on this device while signed out are uploaded to the account.
-  async signIn(provider, idToken) {
+  async signIn(provider, idToken, name) {
     const res = await api(`/api/auth/${provider}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ idToken }),
+      body: JSON.stringify({ idToken, name }),
     }).catch(() => null);
     if (!res?.ok) return false;
     email = (await res.json()).email;
@@ -210,6 +210,16 @@ export const cloud = {
     return true;
   },
 
+  // Start playing a puzzle together. Returns { ok, code } or { ok: false, error }.
+  async share(id) {
+    return post(`/api/puzzles/${encodeURIComponent(id)}/share`);
+  },
+
+  // Join a shared puzzle by its invite code. Returns { ok, id } or { ok: false, error }.
+  async join(code) {
+    return post(`/api/join/${encodeURIComponent(code)}`);
+  },
+
   // A puzzle photo this device is missing.
   async fetchImage(id) {
     if (!this.on) return null;
@@ -224,6 +234,16 @@ export const cloud = {
     }
   },
 };
+
+async function post(path) {
+  try {
+    const res = await api(path, { method: 'POST' });
+    const body = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, ...body };
+  } catch {
+    return { ok: false, error: 'You’re offline right now.' };
+  }
+}
 
 async function pull(id) {
   const res = await api(`/api/puzzles/${encodeURIComponent(id)}`);

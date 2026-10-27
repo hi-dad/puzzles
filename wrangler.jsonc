@@ -38,6 +38,12 @@
     "GOOGLE_IOS_CLIENT_ID": "392796332509-jvs3enrad2n3llj3qa8ki6jug9jns5hb.apps.googleusercontent.com"
   },
 
+  // One live room per shared puzzle (worker/room.js), for playing together.
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "PuzzleRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PuzzleRoom"] }],
+
   "routes": [{ "pattern": "poozles.app", "custom_domain": true }],
   "workers_dev": true,
   // No per-version preview URLs: one address.

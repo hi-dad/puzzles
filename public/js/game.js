@@ -2,7 +2,7 @@
 // Works with touch (iPhone), mouse and Mac trackpad.
 
 import { Cut } from './geometry.js';
-import { settle, placedCount } from './logic.js';
+import { settle, placedCount, applyPatch } from './logic.js';
 import { sfx } from './sound.js';
 import { SURFACES, MATS, TRAYS, surface, matFelt } from './textures.js';
 
@@ -107,6 +107,8 @@ export class Game {
     this.mode = null;
     this.m = null;
     this.dragSet = new Set();
+    // Playing together: other players' held pieces, pid -> { name, color, pieces: Set }.
+    this.remote = new Map();
     this.anim = null;
     this.ripples = [];
     this.raf = 0;
@@ -285,6 +287,132 @@ export class Game {
     this.changed();
   }
 
+  // ---------- playing together ----------
+  //
+  // On a shared puzzle every move is sent to the live room as a patch (see logic.js), and
+  // other players' moves arrive the same way. Picking pieces up asks the room for them, so
+  // two people can't grab the same piece. Solo puzzles leave these hooks unset.
+
+  emit(patch) {
+    this.hooks.onPatch?.(patch);
+  }
+
+  // Who (other than me) is holding piece i right now, or null.
+  heldBy(i) {
+    for (const p of this.remote.values()) if (p.pieces.has(i)) return p;
+    return null;
+  }
+
+  busy(g) {
+    return this.remote.size > 0 && g.members.some((i) => this.heldBy(i));
+  }
+
+  rebuildGroupOf() {
+    this.groupOf = new Array(this.n).fill(null);
+    for (const g of this.groups) for (const i of g.members) this.groupOf[i] = g;
+  }
+
+  // The room's copy of the board replaces ours when we connect.
+  loadState(state) {
+    this.groups = state.groups.map((g) => ({ x: g.x, y: g.y, r: g.r || 0, locked: !!g.locked, members: [...g.members] }));
+    this.tray = [...state.tray];
+    if (state.rot) this.rot = [...state.rot];
+    this.rebuildGroupOf();
+    this.selected.clear();
+    this.trayVer++;
+    this.clampTray();
+    this.redraw();
+  }
+
+  // `moved`: the pieces the other player was holding, for the glow where they landed.
+  applyRemote(patch, moved = []) {
+    const before = this.groupOf;
+    const st = applyPatch({ groups: this.groups, tray: this.tray, rot: this.rot }, patch);
+    // Keep the objects for groups we're dragging (they can't be in someone else's patch).
+    this.groups = st.groups.map((g) => {
+      const mine = [...this.dragSet].find((d) => d.members.length === g.members.length && d.members.includes(g.members[0]));
+      return mine || g;
+    });
+    this.tray = st.tray;
+    this.rebuildGroupOf();
+    this.trayVer++;
+    // Same click and ripple of light as your own moves when their pieces join or lock in.
+    let locked = false, joined = false;
+    for (const pg of patch.groups || []) {
+      const g = this.groupOf[pg.members[0]];
+      if (!g) continue;
+      const was = new Set(g.members.map((i) => before[i]).filter(Boolean));
+      // Locked in now: the pieces they moved weren't locked before (joining the frame counts).
+      const mine = moved.filter((i) => g.members.includes(i));
+      const lockedNow = g.locked && (mine.length ? mine.some((i) => !before[i]?.locked) : !g.members.some((i) => before[i]?.locked));
+      const joinedNow = was.size > 1 || (was.size === 1 && [...was][0].members.length < g.members.length && moved.length > 0);
+      if (lockedNow || joinedNow) {
+        const dropped = moved.filter((i) => g.members.includes(i));
+        this.ripple(g, dropped.length ? dropped : g.members, lockedNow);
+      }
+      locked ||= lockedNow;
+      joined ||= joinedNow;
+    }
+    if (!document.hidden) {
+      if (locked) sfx.lock();
+      else if (joined) sfx.snap();
+    }
+    this.pruneSelection();
+    this.checkDone();
+    this.changed();
+  }
+
+  remoteHold(pid, name, color, pieces) {
+    const p = this.remote.get(pid) || { name, color, pieces: new Set() };
+    for (const i of pieces) p.pieces.add(i);
+    this.remote.set(pid, p);
+    this.redraw();
+  }
+
+  remoteRelease(pid) {
+    this.remote.delete(pid);
+    this.redraw();
+  }
+
+  // Another player is moving pieces: show them where they are (nothing is saved yet).
+  remoteDrag(groups) {
+    for (const { k, x, y, r } of groups) {
+      let g = this.groupOf[k];
+      if (!g && this.tray.includes(k)) {
+        this.tray.splice(this.tray.indexOf(k), 1);
+        this.trayVer++;
+        g = { x, y, r: r || 0, locked: false, members: [k] };
+        this.groups.push(g);
+        this.groupOf[k] = g;
+      }
+      if (!g || g.locked) continue;
+      g.x = x;
+      g.y = y;
+      g.r = r || 0;
+    }
+    this.clampTray();
+    this.redraw();
+  }
+
+  // The room said someone else already has these pieces: put ours back.
+  denyGrab(pieces) {
+    const m = this.m;
+    if (this.mode !== 'piece' || !m || !m.list.some((it) => it.g.members.some((i) => pieces.includes(i)))) return;
+    for (const it of m.list) {
+      it.g.x = it.x0;
+      it.g.y = it.y0;
+    }
+    for (const i of m.pulled || []) {
+      const g = this.groupOf[i];
+      if (g) this.returnToTray(g);
+    }
+    this.dragSet = new Set();
+    this.overTray = false;
+    this.mode = null;
+    this.m = null;
+    this.changed();
+  }
+
   // ---------- state changes ----------
 
   pull(idx, p) {
@@ -306,8 +434,9 @@ export class Game {
     const pad = Math.max(pw, ph) * this.cam.s * 0.8;
     const x = pad + Math.random() * Math.max(1, this.w - 2 * pad);
     const y = pad + Math.random() * Math.max(1, this.boardH - 2 * pad);
-    this.pull(idx, { x, y });
+    const g = this.pull(idx, { x, y });
     sfx.drop();
+    this.emit({ groups: [g], trayRemove: [idx] });
     this.changed();
   }
 
@@ -324,8 +453,9 @@ export class Game {
     if (Math.abs(target - this.cam.s) > 1e-6) this.zoomAt(this.w / 2, this.boardH / 2, target / this.cam.s);
     const s = step * this.cam.s;
     const x0 = this.w / 2 - ((per - 1) * s) / 2, y0 = this.boardH / 2 - ((rows - 1) * s) / 2;
-    list.forEach((idx, k) => this.pull(idx, { x: x0 + (k % per) * s, y: y0 + Math.floor(k / per) * s }));
+    const made = list.map((idx, k) => this.pull(idx, { x: x0 + (k % per) * s, y: y0 + Math.floor(k / per) * s }));
     sfx.drop();
+    this.emit({ groups: made, trayRemove: [...list] });
     this.changed();
   }
 
@@ -384,9 +514,10 @@ export class Game {
   // Send every single loose piece on the table back to the tray. Pieces locked into the
   // frame and clusters already joined together stay where they are.
   tidy() {
-    const loose = this.groups.filter((g) => !g.locked && g.members.length === 1);
+    const loose = this.groups.filter((g) => !g.locked && g.members.length === 1 && !this.busy(g));
     for (const g of loose) this.returnToTray(g);
     if (loose.length) {
+      this.emit({ trayAdd: loose.map((g) => ({ i: g.members[0], r: this.rot[g.members[0]] || 0 })) });
       sfx.drop();
       this.changed();
       this.selectionChanged();
@@ -461,8 +592,10 @@ export class Game {
   // Drop one or more groups that were moved together. Over the tray, single pieces go back
   // into it; otherwise each group snaps to the frame / its neighbours as usual.
   dropMany(list, p) {
+    const pulled = this.m?.pulled || [];
     if (this.inTray(p.y) && list.every((g) => g.members.length === 1 && !g.locked)) {
       for (const g of list) this.returnToTray(g);
+      this.emit({ trayAdd: list.map((g) => ({ i: g.members[0], r: g.r || 0 })) });
       sfx.drop();
       this.changed();
       this.selectionChanged();
@@ -473,11 +606,16 @@ export class Game {
     for (const g of list) {
       if (!this.groups.includes(g)) continue; // already merged into another moved group
       const dropped = [...g.members];
-      const r = settle(g, { groups: this.groups, groupOf: this.groupOf, cols: this.rec.cols, rows: this.rec.rows, tol });
+      const r = settle(g, {
+        groups: this.groups, groupOf: this.groupOf, cols: this.rec.cols, rows: this.rec.rows, tol, busy: (o) => this.busy(o),
+      });
       if (r.locked || r.joined) this.ripple(g, dropped, r.locked);
       locked ||= r.locked;
       joined ||= r.joined > 0;
     }
+    const moved = new Set();
+    for (const g of list) for (const i of g.members) moved.add(this.groupOf[i]);
+    this.emit({ groups: [...moved].filter(Boolean), trayRemove: pulled });
     if (locked) sfx.lock();
     else if (joined) sfx.snap();
     else sfx.drop();
@@ -622,7 +760,7 @@ export class Game {
     let near = null;
     for (let gi = this.groups.length - 1; gi >= 0; gi--) {
       const g = this.groups[gi];
-      if (g.locked) continue;
+      if (g.locked || this.busy(g)) continue;
       const u = turn(w.x - g.x, w.y - g.y, 4 - g.r);
       for (const i of g.members) {
         const pc = this.pieces[i];
@@ -714,10 +852,11 @@ export class Game {
     }
     this.mode = 'piece';
     this.m = {
-      id, g, list: list.map((x) => ({ g: x, gx: w.x - x.x, gy: w.y - x.y })),
+      id, g, list: list.map((x) => ({ g: x, gx: w.x - x.x, gy: w.y - x.y, x0: x.x, y0: x.y })),
       x0: p.x, y0: p.y, moved: false, fromTray: false,
     };
     this.dragSet = new Set(list);
+    this.hooks.onGrab?.(list.flatMap((x) => x.members));
     sfx.pick();
     this.redraw();
   }
@@ -745,6 +884,7 @@ export class Game {
         it.g.x = w.x - it.gx;
         it.g.y = w.y - it.gy;
       }
+      this.hooks.onDrag?.(m.list.map(({ g }) => ({ k: g.members[0], x: g.x, y: g.y, r: g.r || 0 })));
       const over = this.inTray(p.y) && m.list.every((it) => it.g.members.length === 1);
       if (over && !this.overTray) {
         this.overTraySince = performance.now();
@@ -765,6 +905,7 @@ export class Game {
           const g = this.pull(m.idx, p);
           this.beginDrag(g, p, m.id);
           this.m.moved = true;
+          this.m.pulled = [m.idx];
           return;
         }
       }
@@ -804,7 +945,10 @@ export class Game {
       this.dragSet = new Set();
       this.overTray = false;
       const tap = !m.moved && e.type === 'pointerup';
-      if (tap && m.toggle) this.toggleSelected(m.g);
+      if (tap && m.toggle) {
+        this.toggleSelected(m.g);
+        this.hooks.onRelease?.();
+      }
       else if (tap && this.rotate && m.list.length === 1) {
         const w = this.toWorld(p.x, p.y);
         this.spin(m.g, w.x, w.y);
@@ -982,12 +1126,15 @@ export class Game {
       x1: (this.w - cam.x) / cam.s, y1: (this.h - cam.y) / cam.s,
     };
     for (const g of this.groups) if (g.locked) this.drawGroup(g, view);
-    for (const g of this.groups) if (!g.locked && !this.dragSet.has(g)) this.drawGroup(g, view);
-    for (const g of this.dragSet) this.drawGroup(g, view, this.overTray ? 0.6 : 1, true);
-    if (this.selected.size) this.drawSelection(t);
+    for (const g of this.groups) if (!g.locked && !this.dragSet.has(g) && !this.busy(g)) this.drawGroup(g, view);
     if (this.ripples.length) this.drawRipples(t);
 
     this.drawTray();
+    // Pieces in someone's hand float above the tray, so you can see where they'll land.
+    ctx.setTransform(dpr * cam.s, 0, 0, dpr * cam.s, dpr * cam.x, dpr * cam.y);
+    if (this.remote.size) this.drawRemote(view);
+    for (const g of this.dragSet) this.drawGroup(g, view, this.overTray ? 0.6 : 1, true);
+    if (this.selected.size) this.drawSelection(t);
     if (this.mode === 'lasso' && this.m) this.drawLasso();
   }
 
@@ -1028,6 +1175,48 @@ export class Game {
       ctx.restore();
     }
     ctx.restore();
+  }
+
+  // Pieces other players are holding: lifted, outlined in their colour, with their name.
+  drawRemote(view) {
+    const { ctx, cut, cam, dpr } = this;
+    for (const p of this.remote.values()) {
+      const groups = new Set();
+      for (const i of p.pieces) if (this.groupOf[i] && !this.groupOf[i].locked) groups.add(this.groupOf[i]);
+      for (const g of groups) {
+        this.drawGroup(g, view, 1, true);
+        ctx.save();
+        this.groupTransform(g, performance.now());
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 3 / cam.s;
+        for (const i of g.members) {
+          const pc = this.pieces[i];
+          ctx.save();
+          ctx.translate(pc.col * cut.pw - cut.M, pc.row * cut.ph - cut.M);
+          ctx.stroke(pc.path);
+          ctx.restore();
+        }
+        ctx.restore();
+        // name tag above the group's first piece
+        const pc = this.pieces[g.members[0]];
+        const c = turn((pc.col + 0.5) * cut.pw, pc.row * cut.ph, g.r);
+        const sx = (g.x + c.x) * cam.s + cam.x, sy = (g.y + c.y) * cam.s + cam.y - 10;
+        ctx.save();
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.font = '600 12px -apple-system, system-ui, sans-serif';
+        const tw = ctx.measureText(p.name).width + 14;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.roundRect(sx - tw / 2, sy - 20, tw, 20, 10);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(p.name, sx, sy - 10);
+        ctx.restore();
+        ctx.setTransform(dpr * cam.s, 0, 0, dpr * cam.s, dpr * cam.x, dpr * cam.y);
+      }
+    }
   }
 
   // Set the context so drawing at a piece's solved position lands where group g is now.
@@ -1101,13 +1290,15 @@ export class Game {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = tray.color;
     ctx.fillRect(0, top, this.w, this.trayH);
+    // Over the tray, the tray tints and its top line turns coral straight away; the words
+    // only follow after a moment (dragging low to get a piece out of the way is common).
     const hint = this.overTray && performance.now() - this.overTraySince >= TRAY_HINT_DELAY;
-    if (hint) {
-      ctx.fillStyle = 'rgba(239,90,76,0.08)';
+    if (this.overTray) {
+      ctx.fillStyle = 'rgba(239,90,76,0.12)';
       ctx.fillRect(0, top, this.w, this.trayH);
     }
     // peach line separating the board from the tray
-    ctx.fillStyle = '#F6C7B3';
+    ctx.fillStyle = this.overTray ? '#EF5A4C' : '#F6C7B3';
     ctx.fillRect(0, top, this.w, 6);
 
     const list = this.trayList();
