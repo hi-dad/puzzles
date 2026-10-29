@@ -1,6 +1,6 @@
 {
- "version": "2e02602ed48b7ec2",
- "built": 1793305059806,
+ "version": "697b16599792d006",
+ "built": 1793305626973,
  "minApp": 1,
  "files": [
   {
@@ -17,7 +17,7 @@
   },
   {
    "path": "index.html",
-   "sha256": "3c5358e507e10ecaae7f556829b7e4b0fae16c02722098bb7c79b0e57f071c74"
+   "sha256": "c4930f4ad4eb8bbe84a3d91ab49f4563bab5c51574c6713a9ef25a84e6b4f334"
   },
   {
    "path": "js/db.js",
@@ -85,19 +85,15 @@
   },
   {
    "path": "styles.css",
-   "sha256": "c194ff5d2b43f3c8aef24e3b093bce2b2788be813a469c40b1dc08245ad0ec1c"
+   "sha256": "9b036115cffeec92a2d91a3df60e1b48fdcf68071b8cbe77746ca7b09355a39f"
   },
   {
-   "path": "welcome-piece.webp",
-   "sha256": "2f93b6fcaea4c9f0a6b2d01610384350652703c2bd79bf668e2bfa0c09074e9a"
+   "path": "welcome-poodles-phone.webp",
+   "sha256": "d7dff4a229cf3852f1a52ab7f1e6392304c2ebec5b144e1dc0e41bc943b2af5f"
   },
   {
-   "path": "welcome-poodle-pink.webp",
-   "sha256": "f023132f6f3585f37ddfdc76afda122a64844756fc1de026613ee85a7773e5ce"
-  },
-  {
-   "path": "welcome-poodle-red.webp",
-   "sha256": "9fee3acccf111c925adbfa04a130951d4ba5f504ad1d906490057a7409d115db"
+   "path": "welcome-poodles.webp",
+   "sha256": "d326a05165f14d3357d6feee1634b2d5385c13abcd717b10be34c1bd5a078892"
   }
  ]
 }

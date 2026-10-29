@@ -340,19 +340,13 @@ a { color: inherit; text-decoration: none; }
 .welcome-ctas { display: flex; justify-content: center; flex-wrap: wrap; gap: 14px; margin-top: 24px; }
 .welcome-ctas button { min-height: 54px; padding: 0 30px; font-size: 17px; gap: 10px; }
 .welcome-outline { background: #fff; border: 1.5px solid var(--accent); color: var(--accent); min-width: 200px; }
-/* Two running poodles; positions match the approved artwork (desktop row, phone stack) */
-.welcome-art { position: relative; width: calc(100% - 64px); max-width: 1200px; aspect-ratio: 1196 / 348; margin: 90px auto 60px; }
-.welcome-art img { position: absolute; height: auto; }
-.wa-piece { left: 0; top: 47.7%; width: 15.8%; }
-.wa-red { left: 19.9%; top: 0; width: 35.5%; }
-.wa-pink { left: 57.4%; top: 7.2%; width: 42.6%; }
+/* Two running poodles (desktop also shows a flying piece; phones get a tighter two-poodle image) */
+.welcome-art { display: block; width: calc(100% - 64px); max-width: 1200px; margin: 90px auto 60px; }
+.welcome-art img { display: block; width: 100%; height: auto; }
 @media (max-width: 699px) {
-  .welcome-art { width: calc(100% - 40px); aspect-ratio: 776 / 359; margin-top: 64px; }
-  .wa-red { left: 0; width: 46.8%; }
+  .welcome-art { width: calc(100% - 40px); margin-top: 64px; }
   .welcome-ctas { flex-direction: column; align-items: center; }
   .welcome-ctas button { width: min(100%, 320px); justify-content: center; }
-  .wa-pink { left: 43.8%; top: 8.9%; width: 56.2%; }
-  .wa-piece { display: none; }
 }
 
 /* Desktop: everything on the home page a size up */
