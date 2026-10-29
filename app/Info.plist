@@ -2,6 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Only standard HTTPS encryption, so App Store Connect skips the export-compliance question. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<!-- Lets debug builds talk to the test server on this Mac (http://localhost:8787). -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
