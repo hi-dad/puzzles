@@ -35,22 +35,23 @@ struct SplashView: View {
             } while !game.pageReady && Date().timeIntervalSince(started) < 4
         }
         while !game.pageReady && Date().timeIntervalSince(started) < 4 { try? await Task.sleep(for: .milliseconds(50)) }
-        withAnimation(.easeOut(duration: 0.25)) { opacity = 0 }
-        try? await Task.sleep(for: .milliseconds(250))
+        withAnimation(.easeOut(duration: 0.2)) { opacity = 0 }
+        try? await Task.sleep(for: .milliseconds(200))
         onDone()
     }
 
+    // A small, quick hop (about half a second): cute without feeling like a wait.
     private func hop() async {
-        withAnimation(.easeOut(duration: 0.08)) { squash = 0.92 } // crouch
-        try? await Task.sleep(for: .milliseconds(80))
-        withAnimation(.easeOut(duration: 0.24)) { lift = -44; squash = 1.04 } // up
-        try? await Task.sleep(for: .milliseconds(240))
-        withAnimation(.easeIn(duration: 0.18)) { lift = 0; squash = 1 } // down
+        withAnimation(.easeOut(duration: 0.06)) { squash = 0.95 } // crouch
+        try? await Task.sleep(for: .milliseconds(60))
+        withAnimation(.easeOut(duration: 0.18)) { lift = -22; squash = 1.02 } // up
         try? await Task.sleep(for: .milliseconds(180))
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        withAnimation(.spring(duration: 0.22, bounce: 0.5)) { squash = 0.9 } // land
-        try? await Task.sleep(for: .milliseconds(90))
-        withAnimation(.spring(duration: 0.25, bounce: 0.4)) { squash = 1 }
-        try? await Task.sleep(for: .milliseconds(260))
+        withAnimation(.easeIn(duration: 0.14)) { lift = 0; squash = 1 } // down
+        try? await Task.sleep(for: .milliseconds(140))
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        withAnimation(.spring(duration: 0.18, bounce: 0.4)) { squash = 0.95 } // land
+        try? await Task.sleep(for: .milliseconds(70))
+        withAnimation(.spring(duration: 0.2, bounce: 0.3)) { squash = 1 }
+        try? await Task.sleep(for: .milliseconds(120))
     }
 }
