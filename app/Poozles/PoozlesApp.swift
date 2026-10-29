@@ -7,12 +7,16 @@ import SwiftUI
 @main
 struct PoozlesApp: App {
     @State private var game = GameController()
+    @State private var showSplash = true
 
     var body: some Scene {
         WindowGroup {
             GameView(controller: game)
                 .ignoresSafeArea()
                 .background(Color(red: 1, green: 0.976, blue: 0.953)) // the cream page color
+                .overlay {
+                    if showSplash { SplashView(game: game) { showSplash = false } }
+                }
                 // Invite links (https://poozles.app/join/CODE) open here when the app is installed.
                 .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
                     if let url = activity.webpageURL { game.openInvite(url) }

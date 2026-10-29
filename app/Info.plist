@@ -5,6 +5,16 @@
 	<!-- Only standard HTTPS encryption, so App Store Connect skips the export-compliance question. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- Launch screen: the poodle on cream. SplashView starts from exactly this picture and makes it hop. -->
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+		<key>UIImageName</key>
+		<string>LaunchPoodle</string>
+		<key>UIImageRespectsSafeAreaInsets</key>
+		<false/>
+	</dict>
 	<!-- Lets debug builds talk to the test server on this Mac (http://localhost:8787). -->
 	<key>NSAppTransportSecurity</key>
 	<dict>

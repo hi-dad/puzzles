@@ -12,6 +12,8 @@ import WebKit
 @Observable
 final class GameController: NSObject {
     private(set) var webView: WKWebView?
+    /// The game page has loaded at least once (the splash waits for this).
+    private(set) var pageReady = false
     private let signIn = SignIn()
     private var loaded = false
     private var pending: [[String: Any]] = []
@@ -124,6 +126,7 @@ final class GameController: NSObject {
 extension GameController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loaded = true
+        pageReady = true
         let queued = pending
         pending = []
         queued.forEach(send)
