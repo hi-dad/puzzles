@@ -77,12 +77,17 @@ final class GameFiles: NSObject, WKURLSchemeHandler {
 
     private static let activeKey = "webVersion"
 
+    private static var bundledRoot: URL { Bundle.main.resourceURL!.appendingPathComponent("web", isDirectory: true) }
+
+    /// The downloaded copy, but only while it is newer than the copy built into the app
+    /// (after an App Store update the built-in copy can be the newer one).
     static func activeRoot() -> URL {
         if let version = UserDefaults.standard.string(forKey: activeKey) {
             let dir = updatesDir.appendingPathComponent(version, isDirectory: true)
-            if FileManager.default.fileExists(atPath: dir.appendingPathComponent("index.html").path) { return dir }
+            if FileManager.default.fileExists(atPath: dir.appendingPathComponent("index.html").path),
+               built(of: dir) > built(of: bundledRoot) { return dir }
         }
-        return Bundle.main.resourceURL!.appendingPathComponent("web", isDirectory: true)
+        return bundledRoot
     }
 
     // MARK: updating from poozles.app
@@ -90,11 +95,13 @@ final class GameFiles: NSObject, WKURLSchemeHandler {
     private struct Manifest: Decodable {
         struct File: Decodable { let path: String; let sha256: String }
         let version: String
+        let built: Double? // when the files last changed; missing in early manifests
         let minApp: Int
         let files: [File]
     }
 
     /// Downloads a newer copy of the game files if poozles.app has one this shell can run.
+    /// "Newer" means a later `built` stamp, so an older copy never replaces a newer one.
     /// Every file is checked against its fingerprint, and the copy only switches over once
     /// everything has arrived, so a dropped connection can never leave a half-updated game.
     static func updateIfNeeded() async {
@@ -103,7 +110,7 @@ final class GameFiles: NSObject, WKURLSchemeHandler {
             request.cachePolicy = .reloadIgnoringLocalCacheData
             let (data, _) = try await URLSession.shared.data(for: request)
             let manifest = try JSONDecoder().decode(Manifest.self, from: data)
-            guard manifest.minApp <= shellVersion, manifest.version != currentVersion() else { return }
+            guard manifest.minApp <= shellVersion, (manifest.built ?? 0) > built(of: activeRoot()) else { return }
 
             let fm = FileManager.default
             let incoming = updatesDir.appendingPathComponent("incoming-\(manifest.version)", isDirectory: true)
@@ -130,10 +137,9 @@ final class GameFiles: NSObject, WKURLSchemeHandler {
         }
     }
 
-    private static func currentVersion() -> String? {
-        let root = activeRoot()
+    private static func built(of root: URL) -> Double {
         guard let data = try? Data(contentsOf: root.appendingPathComponent("app-manifest.json")),
-              let manifest = try? JSONDecoder().decode(Manifest.self, from: data) else { return nil }
-        return manifest.version
+              let manifest = try? JSONDecoder().decode(Manifest.self, from: data) else { return 0 }
+        return manifest.built ?? 0
     }
 }

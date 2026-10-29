@@ -3,9 +3,12 @@
 // changing anything in public/ (the tests fail if it's out of date).
 //   minApp: the oldest app shell these files work with (GameFiles.shellVersion in the
 //   app). Raise it when the web code starts needing something new from the shell.
+//   built: when the files last changed (ms since 1970). The app only ever switches to a
+//   copy with a later `built`, so an older copy never replaces a newer one. It is kept
+//   as-is while the files are unchanged.
 
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,6 +34,9 @@ export function buildManifest() {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  writeFileSync(out, JSON.stringify(buildManifest(), null, 1) + '\n');
+  const { version, minApp, files } = buildManifest();
+  const saved = existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : {};
+  const built = saved.version === version && saved.built ? saved.built : Date.now();
+  writeFileSync(out, JSON.stringify({ version, built, minApp, files }, null, 1) + '\n');
   console.log('app-manifest.json updated');
 }
