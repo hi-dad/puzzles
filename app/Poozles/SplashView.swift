@@ -35,8 +35,9 @@ struct SplashView: View {
             } while !game.pageReady && Date().timeIntervalSince(started) < 4
         }
         while !game.pageReady && Date().timeIntervalSince(started) < 4 { try? await Task.sleep(for: .milliseconds(50)) }
-        withAnimation(.easeOut(duration: 0.2)) { opacity = 0 }
-        try? await Task.sleep(for: .milliseconds(200))
+        try? await Task.sleep(for: .milliseconds(100)) // let the page finish drawing underneath
+        withAnimation(.easeInOut(duration: 0.35)) { opacity = 0 }
+        try? await Task.sleep(for: .milliseconds(350))
         onDone()
     }
 
