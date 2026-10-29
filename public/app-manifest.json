@@ -1,6 +1,6 @@
 {
- "version": "697b16599792d006",
- "built": 1793305626973,
+ "version": "17b3fe3133a05325",
+ "built": 1793312672319,
  "minApp": 1,
  "files": [
   {
@@ -89,11 +89,11 @@
   },
   {
    "path": "welcome-poodles-phone.webp",
-   "sha256": "d7dff4a229cf3852f1a52ab7f1e6392304c2ebec5b144e1dc0e41bc943b2af5f"
+   "sha256": "c7d17f1d2715bcfb1e8439dd3b058d340595631802a8277fcdd55ef85d9f8ac3"
   },
   {
    "path": "welcome-poodles.webp",
-   "sha256": "d326a05165f14d3357d6feee1634b2d5385c13abcd717b10be34c1bd5a078892"
+   "sha256": "feaf59b7528084c30ad07654a0e86d94164ca51cccabd281c5094afc0c6737f9"
   }
  ]
 }
