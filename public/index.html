@@ -64,6 +64,10 @@
       </button>
     </header>
     <hr class="home-rule">
+    <div id="lib-loading" class="lib-loading" hidden>
+      <span class="spinner" aria-hidden="true"></span>
+      <p>Loading your puzzles…</p>
+    </div>
     <div id="empty" class="empty" hidden>
       <p class="empty-title">Turn any photo into a jigsaw.</p>
       <a id="hero-cta" class="primary" href="#/new">Make your first puzzle</a>
@@ -325,15 +329,27 @@
 
   <!-- Account -->
   <div id="account" class="conflict" hidden>
-    <div class="conflict-card">
+    <div id="account-main" class="conflict-card">
       <strong>Your account</strong>
       <p>Signed in as <span id="account-email"></span></p>
       <div class="conflict-actions">
         <button id="account-close" class="secondary" type="button">Close</button>
         <button id="account-signout" class="primary" type="button">Sign out</button>
       </div>
-      <button id="account-delete" class="link-btn danger" type="button">Delete account</button>
+      <button id="account-delete" class="link-btn danger" type="button">Delete account…</button>
     </div>
+    <!-- Deleting takes a second step: type "delete" to unlock the button -->
+    <form id="account-confirm" class="conflict-card" hidden>
+      <strong>Delete your account?</strong>
+      <p>Your puzzles and photos will be erased from every device, and you'll leave any puzzles you play with others. This can't be undone.</p>
+      <label class="confirm-label" for="account-confirm-input">Type <b>delete</b> to confirm</label>
+      <input id="account-confirm-input" class="text" autocomplete="off" autocapitalize="none" spellcheck="false">
+      <p id="account-confirm-error" class="error"></p>
+      <div class="conflict-actions">
+        <button id="account-confirm-cancel" class="secondary" type="button">Cancel</button>
+        <button id="account-confirm-go" class="danger-btn" type="submit" disabled>Delete forever</button>
+      </div>
+    </form>
   </div>
 
   <script type="module" src="js/main.js"></script>

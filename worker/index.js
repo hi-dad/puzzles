@@ -160,6 +160,7 @@ async function api(request, env, url, owner) {
     await env.DB.batch([
       env.DB.prepare('DELETE FROM puzzles WHERE owner = ?').bind(owner),
       env.DB.prepare('DELETE FROM sessions WHERE owner = ?').bind(owner),
+      env.DB.prepare('DELETE FROM users WHERE email = ?').bind(owner),
     ]);
     const prefix = `${encodeURIComponent(owner)}/`;
     let cursor;

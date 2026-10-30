@@ -56,7 +56,24 @@ function rememberSignedIn(on) {
     else localStorage.removeItem(SIGNED_IN_KEY);
   } catch {}
 }
+// "Not now" on the sign-in sheet: play as a guest, with puzzles kept only on this
+// device. They upload to the account if the guest signs in later.
+const GUEST_KEY = 'pz-guest';
+function setGuest(on) {
+  try {
+    if (on) localStorage.setItem(GUEST_KEY, '1');
+    else localStorage.removeItem(GUEST_KEY);
+  } catch {}
+}
+function isGuest() {
+  try {
+    return localStorage.getItem(GUEST_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 function needsSignIn() {
+  if (isGuest() && !cloud.email) return false;
   if (cloud.status === 'signed-out') return true;
   if (cloud.status !== 'checking') return false;
   try {
@@ -87,8 +104,8 @@ async function route() {
     await openGame(decodeURIComponent(h.slice(7)));
   } else {
     show('library');
-    await renderLibrary();
     syncNow(); // re-renders if another device changed anything
+    await renderLibrary();
   }
 }
 
@@ -101,7 +118,8 @@ async function renderLibrary() {
   const list = (await db.list()).sort((a, b) => b.updatedAt - a.updatedAt);
   const done = list.filter((r) => r.done);
   const going = list.filter((r) => !r.done);
-  $('#empty').hidden = list.length > 0;
+  libCount = list.length;
+  showLibLoading();
 
   // Most recent unfinished puzzle gets a big "continue" card.
   const current = going[0];
@@ -621,8 +639,27 @@ async function resolveConflict(load) {
 }
 
 async function syncNow() {
-  const changed = await cloud.syncAll({ openId: rec?.id ?? null, onConflict });
+  syncing++;
+  showLibLoading();
+  let changed;
+  try {
+    changed = await cloud.syncAll({ openId: rec?.id ?? null, onConflict });
+  } finally {
+    syncing--;
+  }
   if (changed && !screens.library.hidden) renderLibrary();
+  else showLibLoading();
+}
+
+// An empty library while puzzles are still downloading (just signed in, or a new
+// device) shows "Loading your puzzles…" instead of the first-puzzle invitation.
+let syncing = 0;
+let libCount = null; // puzzles on this device, once the library has been drawn
+function showLibLoading() {
+  if (libCount === null) return;
+  const loading = libCount === 0 && (syncing > 0 || cloud.status === 'checking');
+  $('#lib-loading').hidden = !loading;
+  $('#empty').hidden = libCount > 0 || loading;
 }
 
 const CLOUD_TEXT = {
@@ -718,13 +755,17 @@ function openAccount() {
   $('#account').hidden = false;
 }
 
+function closeAccount() {
+  $('#account').hidden = true;
+  $('#account-main').hidden = false;
+  $('#account-confirm').hidden = true;
+}
+
+// Returns false if the account couldn't be deleted (the confirm step shows why).
 async function signOut(deleteAccount) {
-  if (deleteAccount && !confirm('Delete your Poozles account? Your puzzles and photos will be erased from every device. This can’t be undone.')) return;
-  if (!(await cloud.signOut({ deleteAccount }))) {
-    notice('Couldn’t delete your account', 'Please try again when you’re online.');
-    return;
-  }
+  if (!(await cloud.signOut({ deleteAccount }))) return false;
   rememberSignedIn(false);
+  setGuest(false);
   location.hash = '#/';
   location.reload();
 }
@@ -910,7 +951,16 @@ function wire() {
     startAfterSignIn = true;
     openSignIn('Sign in to start your first puzzle.');
   });
-  $('#signin-cancel').addEventListener('click', () => (startAfterSignIn = false));
+  $('#signin-cancel').addEventListener('click', () => {
+    pendingJoin = null; // playing together needs an account
+    if (!cloud.email && !isGuest()) {
+      setGuest(true);
+      gated = needsSignIn();
+      if (startAfterSignIn && location.hash !== '#/new') location.hash = '#/new';
+      else route();
+    }
+    startAfterSignIn = false;
+  });
   // Switch between the welcome page and the library when sign-in state becomes known.
   let gated = needsSignIn();
   cloud.onStatus((s) => {
@@ -939,7 +989,7 @@ function wire() {
   document.addEventListener('AppleIDSignInOnFailure', (e) => {
     if (e.detail?.error !== 'popup_closed_by_user') $('#signin-error').textContent = 'Apple sign-in didn’t work. Please try again.';
   });
-  $('#account-close').addEventListener('click', () => ($('#account').hidden = true));
+  $('#account-close').addEventListener('click', closeAccount);
   $('#btn-share').addEventListener('click', openShare);
   $('#share-close').addEventListener('click', () => ($('#share').hidden = true));
   $('#share-copy').addEventListener('click', async () => {
@@ -977,7 +1027,27 @@ function wire() {
     }
   });
   $('#account-signout').addEventListener('click', () => signOut(false));
-  $('#account-delete').addEventListener('click', () => signOut(true));
+  $('#account-delete').addEventListener('click', () => {
+    $('#account-main').hidden = true;
+    $('#account-confirm').hidden = false;
+    $('#account-confirm-input').value = '';
+    $('#account-confirm-error').textContent = '';
+    $('#account-confirm-go').disabled = true;
+    $('#account-confirm-input').focus();
+  });
+  $('#account-confirm-input').addEventListener('input', (e) => {
+    $('#account-confirm-go').disabled = e.target.value.trim().toLowerCase() !== 'delete';
+  });
+  $('#account-confirm-cancel').addEventListener('click', closeAccount);
+  $('#account-confirm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if ($('#account-confirm-go').disabled) return;
+    $('#account-confirm-go').disabled = true;
+    if (!(await signOut(true))) {
+      $('#account-confirm-error').textContent = 'Couldn’t delete your account. Please try again when you’re online.';
+      $('#account-confirm-go').disabled = false;
+    }
+  });
   cloud.onConflict = onConflict;
   cloud.onLocalChange = () => !screens.library.hidden && renderLibrary();
   cloud.onStatus(showCloud);
