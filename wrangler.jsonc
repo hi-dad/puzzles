@@ -34,6 +34,7 @@
   "vars": {
     "APPLE_SERVICES_ID": "app.poozles.web",
     "APPLE_BUNDLE_ID": "app.poozles",
+    "APPLE_TEAM_ID": "4J889SV3P4",
     "GOOGLE_WEB_CLIENT_ID": "392796332509-c9aqbkht9frsu9kb27p7bm74095a8146.apps.googleusercontent.com",
     "GOOGLE_IOS_CLIENT_ID": "392796332509-jvs3enrad2n3llj3qa8ki6jug9jns5hb.apps.googleusercontent.com"
   },

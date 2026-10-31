@@ -74,6 +74,8 @@ function ensureSessions(env) {
       token_hash TEXT PRIMARY KEY, owner TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)`),
     env.DB.prepare('CREATE INDEX IF NOT EXISTS sessions_owner ON sessions (owner)'),
     env.DB.prepare('CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, name TEXT)'),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS apple_tokens (
+      email TEXT NOT NULL, client_id TEXT NOT NULL, refresh_token TEXT NOT NULL, PRIMARY KEY (email, client_id))`),
   ]).catch((err) => {
     sessionsReady = null;
     throw err;
@@ -121,6 +123,77 @@ function sessionToken(request) {
   if (proto === 'poozles' && token) return token;
   const m = (request.headers.get('cookie') || '').match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
   return m ? m[1] : null;
+}
+
+// ---------- disconnecting Sign in with Apple ----------
+
+// Apple requires that deleting an account also ends the app's link to the person's Apple
+// ID. That takes a refresh token, which Apple only hands over in exchange for the one-time
+// code from sign-in, so it is kept per person and per client (app and website differ). It
+// is useless without our private key, which lives only in the Worker's secrets. Neither
+// step may ever stop someone signing in or deleting their account, so failures just log.
+const APPLE_AUTH = 'https://appleid.apple.com/auth';
+
+async function appleForm(path, fields) {
+  return fetch(`${APPLE_AUTH}/${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(fields),
+  });
+}
+
+// The short-lived signed password Apple asks for instead of a fixed client secret.
+export async function appleClientSecret(env, clientId, now = Date.now()) {
+  const der = atob(env.APPLE_PRIVATE_KEY.replace(/-----[^-]+-----|\s/g, ''));
+  const key = await crypto.subtle.importKey(
+    'pkcs8', Uint8Array.from(der, (c) => c.charCodeAt(0)), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign'],
+  );
+  const iat = Math.floor(now / 1000);
+  const text = (o) => b64url(new TextEncoder().encode(JSON.stringify(o)));
+  const head = `${text({ alg: 'ES256', kid: env.APPLE_KEY_ID })}.${text({
+    iss: env.APPLE_TEAM_ID, iat, exp: iat + 300, aud: 'https://appleid.apple.com', sub: clientId,
+  })}`;
+  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(head));
+  return `${head}.${b64url(new Uint8Array(sig))}`;
+}
+
+// After an Apple sign-in: swap its one-time code for a refresh token and keep that.
+export async function rememberApple(env, email, code, clientId, redirectUri) {
+  if (!code || !env.APPLE_PRIVATE_KEY) return;
+  try {
+    const fields = { client_id: clientId, client_secret: await appleClientSecret(env, clientId), code, grant_type: 'authorization_code' };
+    if (clientId === env.APPLE_SERVICES_ID) fields.redirect_uri = redirectUri;
+    const res = await appleForm('token', fields);
+    const { refresh_token: token } = await res.json();
+    if (!res.ok || !token) throw new Error(`Apple token ${res.status}`);
+    await ensureSessions(env);
+    await env.DB.prepare(
+      `INSERT INTO apple_tokens (email, client_id, refresh_token) VALUES (?, ?, ?)
+       ON CONFLICT (email, client_id) DO UPDATE SET refresh_token = excluded.refresh_token`,
+    ).bind(email, clientId, token).run();
+  } catch (err) {
+    console.error('rememberApple', err);
+  }
+}
+
+// Account deletion: end the link for each client this person signed in with.
+export async function revokeApple(env, email) {
+  await ensureSessions(env);
+  const { results } = await env.DB.prepare('SELECT client_id, refresh_token FROM apple_tokens WHERE email = ?').bind(email).all();
+  for (const row of results) {
+    try {
+      const res = await appleForm('revoke', {
+        client_id: row.client_id,
+        client_secret: await appleClientSecret(env, row.client_id),
+        token: row.refresh_token,
+        token_type_hint: 'refresh_token',
+      });
+      if (!res.ok) throw new Error(`Apple revoke ${res.status}`);
+    } catch (err) {
+      console.error('revokeApple', err);
+    }
+  }
+  await env.DB.prepare('DELETE FROM apple_tokens WHERE email = ?').bind(email).run();
 }
 
 // ---------- JWT (RS256) ----------

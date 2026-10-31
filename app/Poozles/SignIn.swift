@@ -13,22 +13,22 @@ final class SignIn: NSObject {
     struct Result { let token: String; let email: String }
     enum Failure: Error { case cancelled, failed }
 
-    private var appleContinuation: CheckedContinuation<(String, String?), Error>?
+    private var appleContinuation: CheckedContinuation<(String, String?, String?), Error>?
     private var webSession: ASWebAuthenticationSession?
 
     func signIn(with provider: String) async throws -> Result {
-        let (idToken, name): (String, String?)
+        let (idToken, name, code): (String, String?, String?)
         switch provider {
-        case "apple": (idToken, name) = try await appleIDToken()
-        case "google": (idToken, name) = (try await googleIDToken(), nil)
+        case "apple": (idToken, name, code) = try await appleIDToken()
+        case "google": (idToken, name, code) = (try await googleIDToken(), nil, nil)
         default: throw Failure.failed
         }
-        return try await exchange(provider: provider, idToken: idToken, name: name)
+        return try await exchange(provider: provider, idToken: idToken, name: name, code: code)
     }
 
     // MARK: Apple
 
-    private func appleIDToken() async throws -> (String, String?) {
+    private func appleIDToken() async throws -> (String, String?, String?) {
         let request = ASAuthorizationAppleIDProvider().createRequest()
         request.requestedScopes = [.fullName, .email]
         let controller = ASAuthorizationController(authorizationRequests: [request])
@@ -90,12 +90,13 @@ final class SignIn: NSObject {
 
     // MARK: poozles.app session
 
-    private func exchange(provider: String, idToken: String, name: String?) async throws -> Result {
+    private func exchange(provider: String, idToken: String, name: String?, code: String?) async throws -> Result {
         var request = URLRequest(url: GameFiles.site.appendingPathComponent("api/auth/\(provider)"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = ["idToken": idToken, "app": true]
         if let name { body["name"] = name }
+        if let code { body["code"] = code }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200,
@@ -116,8 +117,9 @@ extension SignIn: ASAuthorizationControllerDelegate {
         let credential = authorization.credential as? ASAuthorizationAppleIDCredential
         let token = credential?.identityToken.flatMap { String(data: $0, encoding: .utf8) }
         let name = credential?.fullName?.givenName // Apple only shares this the first time
+        let code = credential?.authorizationCode.flatMap { String(data: $0, encoding: .utf8) } // lets the server disconnect Apple on account deletion
         Task { @MainActor in
-            if let token { appleContinuation?.resume(returning: (token, name)) }
+            if let token { appleContinuation?.resume(returning: (token, name, code)) }
             else { appleContinuation?.resume(throwing: Failure.failed) }
             appleContinuation = nil
         }

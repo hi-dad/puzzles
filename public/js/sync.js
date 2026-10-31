@@ -189,11 +189,11 @@ export const cloud = {
 
   // Start a session with an ID token from Apple or Google ('dev' needs no token).
   // Puzzles made on this device while signed out are uploaded to the account.
-  async signIn(provider, idToken, name) {
+  async signIn(provider, idToken, name, code) {
     const res = await api(`/api/auth/${provider}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ idToken, name, app: !!app }),
+      body: JSON.stringify({ idToken, name, code, app: !!app }),
     }).catch(() => null);
     if (!res?.ok) return false;
     const body = await res.json();

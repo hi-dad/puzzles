@@ -25,3 +25,11 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT PRIMARY KEY,
   name  TEXT
 );
+
+-- Apple refresh tokens, kept only so deleting an account can disconnect Sign in with Apple.
+CREATE TABLE IF NOT EXISTS apple_tokens (
+  email         TEXT NOT NULL,
+  client_id     TEXT NOT NULL,
+  refresh_token TEXT NOT NULL,
+  PRIMARY KEY (email, client_id)
+);

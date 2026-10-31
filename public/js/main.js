@@ -726,9 +726,9 @@ function openSignIn(reason) {
   $('#signin').hidden = false;
 }
 
-async function finishSignIn(provider, idToken, name) {
+async function finishSignIn(provider, idToken, name, code) {
   $('#signin-error').textContent = '';
-  if (!(await cloud.signIn(provider, idToken, name))) {
+  if (!(await cloud.signIn(provider, idToken, name, code))) {
     $('#signin-error').textContent = 'Sign-in didn’t work. Please try again.';
     return;
   }
@@ -985,7 +985,7 @@ function wire() {
     const name = prompt('Developer sign-in: play as (a first name)', 'Alice');
     if (name) finishSignIn('dev', undefined, name.trim());
   });
-  document.addEventListener('AppleIDSignInOnSuccess', (e) => finishSignIn('apple', e.detail.authorization.id_token, e.detail.user?.name?.firstName));
+  document.addEventListener('AppleIDSignInOnSuccess', (e) => finishSignIn('apple', e.detail.authorization.id_token, e.detail.user?.name?.firstName, e.detail.authorization.code));
   document.addEventListener('AppleIDSignInOnFailure', (e) => {
     if (e.detail?.error !== 'popup_closed_by_user') $('#signin-error').textContent = 'Apple sign-in didn’t work. Please try again.';
   });

@@ -3,7 +3,7 @@
 // they sign in from.
 //
 //   GET    /api/config            -> public sign-in settings for the website
-//   POST   /api/auth/apple        -> { idToken } from Sign in with Apple; starts a session
+//   POST   /api/auth/apple        -> { idToken, code } from Sign in with Apple; starts a session
 //   POST   /api/auth/google       -> { idToken } from Sign in with Google; starts a session
 //   POST   /api/auth/dev          -> local development only (needs DEV_EMAIL in .dev.vars)
 //   POST   /api/auth/signout      -> ends this device's session
@@ -26,7 +26,7 @@
 // for everything stored here. Everything else (the HTML/JS/CSS in /public) is served as
 // static assets without running this code.
 
-import { verifySignIn, createSession, sessionEmail, endSession, sessionCookie, saveName, cleanName } from './auth.js';
+import { verifySignIn, createSession, sessionEmail, endSession, sessionCookie, saveName, cleanName, rememberApple, revokeApple } from './auth.js';
 import { isDowngrade } from '../public/js/format.js';
 import { sharedFor, sharedRecord, listShared, share, join, leave, leaveAll, sharedPhotoKey } from './share.js';
 import { nameOf } from './auth.js';
@@ -112,6 +112,9 @@ async function publicApi(request, env, url) {
     const { email } = who;
     // Apple only shares the name on someone's very first sign-in, from the browser/app.
     await saveName(env, email, who.name || (provider === 'apple' ? cleanName(body.name) : null));
+    if (provider === 'apple') {
+      await rememberApple(env, email, body.code, body.app ? env.APPLE_BUNDLE_ID : env.APPLE_SERVICES_ID, `${url.origin}/`);
+    }
     const token = await createSession(env, email);
     // The website keeps the session in an HttpOnly cookie; the app asks for the token itself.
     return json({ email, ...(body.app ? { token } : {}) }, 200, { 'set-cookie': sessionCookie(token, url) });
@@ -156,6 +159,7 @@ async function api(request, env, url, owner) {
   }
 
   if (kind === 'account' && !id && method === 'DELETE') {
+    await revokeApple(env, owner);
     await leaveAll(env, owner);
     await env.DB.batch([
       env.DB.prepare('DELETE FROM puzzles WHERE owner = ?').bind(owner),
